@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "user-app",
+    "slug": "user-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "userapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
