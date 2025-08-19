@@ -13,17 +13,29 @@ import { hp, wp } from '@/src/assets/utils/responsive';
 import theme from '@/src/assets/colors/theme';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from 'expo-router';
+import { useRoute } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const PRIMARY = theme?.PRIMARY_COLOR ?? '#562E19';
 
 const OtpVerificationScreen: React.FC = () => {
+    const route = useRoute();
+  const { otp: sentOtp, phone } = route.params as { otp: string; phone: string };
   const { control, handleSubmit, formState: { errors } } = useForm({
     defaultValues: { otp: '' },
   });
     const navigation = useNavigation();
 const insets = useSafeAreaInsets();
-  const onSubmit = (data: any) => {
-    navigation.navigate("locationScreen");
+   const onSubmit = async (data: any) => {
+    if (data.otp === sentOtp) {
+      // Save token to AsyncStorage
+      await AsyncStorage.setItem("authToken", "dummy_token_for_testing");
+      console.log("OTP verified. Token saved.");
+
+      navigation.navigate("bottomTabScreen");
+    } else {
+      alert("Invalid OTP");
+    }
   };
 
   return (
@@ -33,7 +45,8 @@ const insets = useSafeAreaInsets();
         style={styles.container}
       >
         {/* <View style={styles.topSpacer} /> */}
-
+<Text>We've sent a 4-digit code to +91 {phone}</Text>
+      <Text style={{ marginTop: 10 }}>Your OTP is: {sentOtp}</Text> {/* TEST ONLY */}
         <View style={styles.content}>
           <Text style={styles.title}>Enter OTP</Text>
           <Text style={styles.subtitle}>

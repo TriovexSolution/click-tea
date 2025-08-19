@@ -180,6 +180,109 @@ const getAllOrders = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+// GET /api/orders/:orderId
+const getOrderById = async (req, res) => {
+    // console.log("DEBUG: hit /:orderId route", req.params.orderId);
+  try {
+    const orderId = req.params.orderId;
+    const user = req.user; // from verifyToken middleware
+
+    // 1) fetch order with shop & user info
+    const [orders] = await db.query(
+      `SELECT o.*, s.shopname, s.id AS shopId, u.username, u.id AS userId
+       FROM orders o
+       JOIN shops s ON o.shopId = s.id
+       JOIN users u ON o.userId = u.id
+       WHERE o.orderId = ?`,
+      [orderId]
+    );
+
+    if (!orders.length) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const order = orders[0];
+
+    // 2) Authorization checks
+    // - users can only access their own orders
+    // - shop_owner can access orders of their shop
+    // - admin can access all
+    if (user.role === "user" && order.userId !== user.id) {
+      return res.status(403).json({ message: "You are not allowed to view this order" });
+    }
+
+    if (user.role === "shop_owner") {
+      // ensure shop_owner is owner of the shop on the order
+      const shopIdFromToken = user.shopId;
+      if (!shopIdFromToken || Number(shopIdFromToken) !== Number(order.shopId)) {
+        return res.status(403).json({ message: "You are not allowed to view this order" });
+      }
+    }
+
+    // 3) Fetch items for the order (with menu details)
+    const [items] = await db.query(
+      `SELECT oi.*, m.menuName, m.imageUrl
+       FROM order_items oi
+       LEFT JOIN menus m ON oi.menuId = m.menuId
+       WHERE oi.orderId = ?`,
+      [orderId]
+    );
+
+    // Parse addons if stored as JSON string and compute quantities
+    const parsedItems = items.map((it) => {
+      let addons = it.addons;
+      if (typeof addons === "string" && addons.trim().startsWith("[")) {
+        try {
+          addons = JSON.parse(addons);
+        } catch (e) {
+          addons = [];
+        }
+      } else if (!addons) {
+        addons = [];
+      }
+      return {
+        ...it,
+        addons,
+        quantity: Number(it.quantity) || 0,
+        price: Number(it.price) || 0,
+        subtotal: Number(it.subtotal) || 0,
+      };
+    });
+
+    // 4) Compose totals & meta for client convenience
+    const itemCount = parsedItems.reduce((s, it) => s + it.quantity, 0);
+    // If your orders table stores discount/tax separately you can compute "originalAmount"
+    // Here we attempt to read discount/original_amount, otherwise fallback:
+    const totalAmount = Number(order.totalAmount) || 0;
+    const discount = Number(order.discount || 0);
+    const originalAmount = Number(order.originalAmount || totalAmount + discount);
+
+    const response = {
+      orderId: order.orderId,
+      userId: order.userId,
+      username: order.username,
+      shopId: order.shopId,
+      shopname: order.shopname,
+      status: order.status,
+      payment_type: order.payment_type,
+      paymentMethod: order.payment_type, // use whichever field your front expects
+      totalAmount,
+      originalAmount,
+      discount,
+      delivery_note: order.delivery_note,
+      created_at: order.created_at,
+      items: parsedItems,
+      itemCount,
+      // any other helpful fields:
+      is_paid: !!order.is_paid,
+    };
+
+    return res.status(200).json(response);
+  } catch (err) {
+    console.error("getOrderById error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
 
 // ✅ 5. Cancel Order (user/shop_owner/admin)
 const cancelOrder = async (req, res) => {
@@ -423,7 +526,8 @@ for (let item of cartItems) {
 //   }
 // };
 const getPopularItems = async (req, res) => {
-  const { lat, lng } = req.query;
+  // console.log("hit /popular-items", req.query, req.user?.id);
+  const { lat, lng, debug } = req.query;
 
   if (!lat || !lng) {
     return res.status(400).json({ message: "Latitude and longitude are required" });
@@ -435,6 +539,7 @@ const getPopularItems = async (req, res) => {
         oi.menuId,
         m.menuName,
         m.imageUrl,
+        m.price,
         SUM(oi.quantity) AS totalQuantity
       FROM
         order_items oi
@@ -452,7 +557,8 @@ const getPopularItems = async (req, res) => {
               sin(radians(?)) * sin(radians(latitude))
             )) <= 3
         )
-      GROUP BY oi.menuId
+      GROUP BY
+        oi.menuId, m.menuName, m.imageUrl, m.price
       ORDER BY totalQuantity DESC
       LIMIT 7;
     `;
@@ -461,12 +567,27 @@ const getPopularItems = async (req, res) => {
 
     const [popularItems] = await db.query(query, params);
 
-    res.status(200).json(popularItems);
+    // optional debug info (development only)
+    if (debug === '1') {
+      console.log('DEBUG popularItems length:', popularItems.length);
+      return res.status(200).json({
+        debug: {
+          query,
+          params,
+          returnedCount: popularItems.length,
+          sample: popularItems.slice(0, 5),
+        },
+        popularItems,
+      });
+    }
+
+    return res.status(200).json(popularItems);
   } catch (err) {
     console.error("Error fetching popular items:", err);
-    res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 };
+
 
 module.exports = {
   placeOrder,
@@ -474,6 +595,7 @@ module.exports = {
   getMyOrders,
   getShopOrders,
   getAllOrders,
+    getOrderById,
   cancelOrder,
   updateOrderStatus,
   getPopularItems

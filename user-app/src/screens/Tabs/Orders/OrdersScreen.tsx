@@ -3,10 +3,10 @@ import {
   Text,
   FlatList,
   StyleSheet,
-  Image,
-  ActivityIndicator,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import React, { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -14,28 +14,27 @@ import axios from "axios";
 import { BASE_URL } from "@/api";
 import theme from "@/src/assets/colors/theme";
 import { hp, wp } from "@/src/assets/utils/responsive";
+import { useNavigation } from "@react-navigation/native";
+import CommonHeader from "@/src/Common/CommonHeader";
 import { timeAgo } from "@/src/assets/utils/timeAgo";
-
-const statusTabs = ["All", "pending", "Completed", "Cancelled"];
 
 const OrdersScreen = () => {
   const [orders, setOrders] = useState<any[]>([]);
-  const [filteredOrders, setFilteredOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedStatus, setSelectedStatus] = useState("All");
+  const navigation = useNavigation();
 
   useEffect(() => {
     fetchMyOrders();
   }, []);
 
-  const fetchMyOrders = async () => {
+  const fetchMyOrders = async () => { 
     try {
+      setLoading(true);
       const token = await AsyncStorage.getItem("authToken");
       const res = await axios.get(`${BASE_URL}/api/orders/my-orders`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setOrders(res.data);
-      setFilteredOrders(res.data);
+      setOrders(res.data || []);
     } catch (err) {
       console.error("❌ Error fetching orders:", err.response?.data || err);
     } finally {
@@ -43,20 +42,9 @@ const OrdersScreen = () => {
     }
   };
 
-  const filterByStatus = (status: string) => {
-    setSelectedStatus(status);
-    if (status === "All") return setFilteredOrders(orders);
-    setFilteredOrders(
-      orders.filter(
-        (o) => o.status.toLowerCase() === status.toLowerCase()
-      )
-    );
-  };
-
   const cancelOrder = async (orderId: number) => {
     try {
       const token = await AsyncStorage.getItem("authToken");
-
       const confirm = await new Promise((resolve) => {
         Alert.alert("Cancel Order", "Are you sure you want to cancel this order?", [
           { text: "No", style: "cancel", onPress: () => resolve(false) },
@@ -66,18 +54,13 @@ const OrdersScreen = () => {
 
       if (!confirm) return;
 
-      const res = await axios.put(
+      await axios.put(
         `${BASE_URL}/api/orders/cancel/${orderId}`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      const msg = res.data?.message || "Order cancelled.";
-      Alert.alert(
-        "Cancelled",
-        `${msg}\n\nIf payment was made via ClickTea Coins, refund has been credited to your wallet.`
-      );
-
+      Alert.alert("Cancelled", "Order cancelled successfully.");
       fetchMyOrders();
     } catch (err) {
       console.error("Cancel error:", err.response?.data || err.message);
@@ -85,106 +68,109 @@ const OrdersScreen = () => {
     }
   };
 
-  const reorder = async (order: any) => {
-    try {
-      const token = await AsyncStorage.getItem("authToken");
-
-      const cartItems = order.items.map((item: any) => ({
-        menuId: item.menuId,
-        quantity: item.quantity,
-        addons: [],
-        notes: "",
-        shopId: order.shopId,
-      }));
-
-      await axios.post(
-        `${BASE_URL}/api/cart/reorder`,
-        { cartItems },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      Alert.alert("Success", "Items added to cart!");
-    } catch (err) {
-      console.error("Reorder error:", err.response?.data || err.message);
-    }
-  };
-
-  const renderItem = ({ item }: { item: any }) => (
-    <View style={styles.orderCard}>
+  const renderOrderCard = (item: any, ongoing = false) => (
+    <View
+      style={[
+        styles.orderCard,
+        ongoing && { backgroundColor: "#FFFBF0" },
+      ]}
+    >
+      {/* Header */}
       <View style={styles.headerRow}>
-        <Text style={styles.shopName}>{item.shop_name}</Text>
-        <Text style={[styles.status, { textTransform: "capitalize" }]}>
-          {item.status}
-        </Text>
-      </View>
+        <View>
+          <Text style={styles.orderId}>#{item.orderId}</Text>
+          <Text style={styles.subText}>
+            {item.shopname} • {timeAgo(item.created_at)}
+          </Text>
+        </View>
 
-      <View style={styles.itemRow}>
-        <Image
-          source={
-            item.items[0]?.imageUrl
-              ? { uri: `${BASE_URL}/uploads/menus/${item.items[0]?.imageUrl}` }
-              : require("../../../assets/images/FirstLogo.jpg") // Optional fallback image
-          }
-          style={styles.image}
-        />
-        <View style={styles.itemInfo}>
-          <Text style={styles.itemCount}>{item.itemCount} item(s)</Text>
-          <Text style={styles.dateText}>
-            ₹{item.totalAmount} • {timeAgo(item.created_at)}
+        <View style={styles.statusBadge}>
+          <Text style={styles.statusText}>
+            {item.status === "ongoing" ? "Preparing" : item.status}
           </Text>
         </View>
       </View>
 
+      {/* Items */}
+      <View style={{ marginVertical: 6 }}>
+        {item.items.map((i: any, idx: number) => (
+          <Text key={idx} style={styles.itemText}>
+            {i.quantity}x {i.menuName}
+          </Text>
+        ))}
+      </View>
+
+      {/* Amount */}
+      <Text style={styles.amountText}>₹{item.totalAmount}</Text>
+
+      {/* Estimated time only for ongoing */}
+      {ongoing && (
+        <Text style={styles.estimatedText}>Estimated delivery: 15 mins</Text>
+      )}
+
+      {/* Buttons */}
       <View style={styles.buttonRow}>
-        {item.status.toLowerCase() === "pending" && (
-          <TouchableOpacity onPress={() => cancelOrder(item.orderId)}>
-            <Text style={styles.cancelBtn}>Cancel</Text>
+        {ongoing && (
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => cancelOrder(item.orderId)}
+          >
+            <Text style={styles.btnText}>Cancel Order</Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity onPress={() => reorder(item)}>
-          <Text style={styles.reorderBtn}>Reorder</Text>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() =>
+            navigation.navigate("orderDetailScreen", { orderId: item.orderId })
+          }
+        >
+          <Text style={styles.btnText}>View Details</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 
+  // Separate ongoing vs all
+  const ongoingOrders = orders.filter((o) => o.status === "ongoing");
+  const pastOrders = orders.filter((o) => o.status !== "ongoing");
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>My Orders</Text>
-
-      <View style={styles.tabContainer}>
-        {statusTabs.map((status) => (
-          <TouchableOpacity
-            key={status}
-            onPress={() => filterByStatus(status)}
-            style={[
-              styles.tab,
-              selectedStatus === status && styles.activeTab,
-            ]}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                selectedStatus === status && styles.activeTabText,
-              ]}
-            >
-              {status}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <CommonHeader title={"Order History"} />
 
       {loading ? (
-        <ActivityIndicator size="large" color={theme.PRIMARY_COLOR} />
-      ) : filteredOrders.length === 0 ? (
+        <ActivityIndicator
+          size="large"
+          color={theme.PRIMARY_COLOR}
+          style={{ marginTop: hp(10) }}
+        />
+      ) : orders.length === 0 ? (
         <Text style={styles.noOrderText}>No orders found.</Text>
       ) : (
-        <FlatList
-          data={filteredOrders}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.orderId.toString()}
-          contentContainerStyle={{ paddingBottom: 100 }}
-        />
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: hp(10), paddingHorizontal: wp(5) }}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Ongoing */}
+          {ongoingOrders.length > 0 && (
+            <View style={{ marginBottom: hp(2) }}>
+              <Text style={styles.sectionTitle}>Ongoing</Text>
+              {ongoingOrders.map((o, idx) => (
+                <View key={idx}>{renderOrderCard(o, true)}</View>
+              ))}
+            </View>
+          )}
+
+          {/* All Orders */}
+          <Text style={styles.sectionTitle}>All Orders</Text>
+          {pastOrders.length === 0 ? (
+            <Text style={styles.noOrderText}>No past orders.</Text>
+          ) : (
+            pastOrders.map((o, idx) => (
+              <View key={idx}>{renderOrderCard(o)}</View>
+            ))
+          )}
+        </ScrollView>
       )}
     </View>
   );
@@ -193,98 +179,71 @@ const OrdersScreen = () => {
 export default OrdersScreen;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 16 },
-  title: {
-    fontSize: hp(2.6),
-    fontWeight: "bold",
-    marginBottom: 10,
-    color: theme.PRIMARY_COLOR,
-  },
-  tabContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  tab: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#ccc",
-  },
-  activeTab: {
-    backgroundColor: theme.PRIMARY_COLOR,
-    borderColor: theme.PRIMARY_COLOR,
-  },
-  tabText: {
-    fontSize: hp(1.7),
-    color: "#555",
-  },
-  activeTabText: {
-    color: "#fff",
+  container: { flex: 1, backgroundColor: "#fff" },
+  sectionTitle: {
+    fontSize: hp(2),
     fontWeight: "600",
+    color: "#000",
+    marginBottom: hp(1),
+    marginTop: hp(1),
   },
   orderCard: {
-    backgroundColor: "#f9f9f9",
-    padding: 12,
     borderRadius: 12,
-    marginBottom: 12,
+    padding: 16,
+    marginBottom: 14,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#F2F2F2",
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
     elevation: 2,
   },
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
+  headerRow: { flexDirection: "row", justifyContent: "space-between" },
+  orderId: { fontSize: hp(2), fontWeight: "700", color: "#333" },
+  subText: { fontSize: hp(1.5), color: "#888", marginTop: 2 },
+  statusBadge: {
+      minWidth: wp(20),            // fixed width so it looks consistent
+    height: hp(3.5),             // fixed height for capsule shape
+    borderRadius: 20,
+    backgroundColor: "#FFFBF0",
+    borderWidth: 1,
+    borderColor: "#ECECEC",
+    justifyContent: "center",    // center text vertically
+    alignItems: "center",        // center text horizontally
+    paddingHorizontal: 10,
   },
-  shopName: {
-    fontWeight: "bold",
-    fontSize: hp(2.2),
-    color: theme.PRIMARY_COLOR,
-  },
-  status: {
-    fontSize: hp(1.7),
-    color: "#888",
-  },
-  itemRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  image: {
-    width: wp(18),
-    height: wp(18),
-    borderRadius: 10,
-    marginRight: 10,
-  },
-  itemInfo: { flex: 1 },
-  itemCount: {
-    fontSize: hp(1.9),
-    fontWeight: "500",
-  },
-  dateText: {
-    fontSize: hp(1.6),
-    color: "#777",
-    marginTop: 2,
+  statusText: { fontSize: hp(1.5), color: "#444", fontWeight: "500" },
+  itemText: { fontSize: hp(1.7), color: "#333", marginBottom: 3 },
+  amountText: { fontSize: hp(1.9), fontWeight: "600", marginTop: 4 },
+  estimatedText: {
+    fontSize: hp(1.4),
+    color: "#666",
+    marginTop: 6,
+    backgroundColor: "rgba(86, 46, 25, 0.07)",
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    alignSelf: "flex-start",
   },
   buttonRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    gap: 12,
-    marginTop: 8,
+    marginTop: 12,
   },
-  cancelBtn: {
-    color: "red",
-    fontWeight: "600",
-    fontSize: hp(1.7),
+  actionBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#ECECEC",
+    marginLeft: 8,
   },
-  reorderBtn: {
-    color: theme.PRIMARY_COLOR,
-    fontWeight: "600",
-    fontSize: hp(1.7),
-  },
+  btnText: { color: "#333", fontWeight: "500", fontSize: hp(1.6) },
   noOrderText: {
     textAlign: "center",
-    marginTop: 40,
+    marginTop: hp(4),
     fontSize: hp(2),
     color: "#999",
   },

@@ -15,6 +15,7 @@ const userRoutes = require("./routes/userRoutes")
 const cartRoutes = require('./routes/cartRoutes')
 const coinRoutes = require("./routes/coinRoutes")
 const addressRoutes = require("./routes/addressRoutes")
+const serviceRoutes = require("./routes/servieRoutes");
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -31,6 +32,7 @@ app.use("/api/cart",cartRoutes)
   // app.use("/api/profile",userRoutes)
   app.use("/api/coin",coinRoutes)
 app.use("/api/address",addressRoutes)
+app.use("/api/service", serviceRoutes);
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 

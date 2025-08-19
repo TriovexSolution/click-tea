@@ -8,8 +8,8 @@ interface LocationState {
 }
 
 const initialState: LocationState = {
-  latitude: null,
-  longitude: null,
+  latitude:null,// here remove null foo testing no service available
+  longitude: null,// here remove null 
   lastUpdated: null,
 };
 

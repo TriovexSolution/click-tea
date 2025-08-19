@@ -46,16 +46,24 @@ const SignInScreen = () => {
 // const { token } = response.data;
 // if (token) {
 //   await AsyncStorage.setItem("authToken", token);
-if(response.status === 200){
+// if(response.status === 200){
     
-    const { token } = response.data;
+//     const { token } = response.data;
 
-    await AsyncStorage.setItem("authToken", token);
-    navigation.navigate("onBoardScreen");
-}
+// if(token){
+//   await AsyncStorage.setItem("authToken", token);
+// }
+//     navigation.navigate("onBoardScreen");
 // } else {
 //   throw new Error("No token received");
 // }
+if (response.status === 200) {
+  const { token } = response.data;
+await AsyncStorage.setItem("authToken", token);
+setTimeout(() => {
+  navigation.replace("bottomTabScreen");
+}, 200); //
+}
 
     } catch (error: any) {
       const errMessage = error?.response?.data?.message;

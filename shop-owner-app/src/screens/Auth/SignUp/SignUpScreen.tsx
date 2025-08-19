@@ -76,6 +76,8 @@ const SignUpScreen = () => {
   //   }
   // };
 const onSubmit = async(data: FormData) => {
+  // console.log(data);
+  
   try {
     const response = await axios.post(`${BASE_URL}/api/auth/signup`, {
       username: data.username,
@@ -88,7 +90,7 @@ const onSubmit = async(data: FormData) => {
     });
 
     if (response.status === 201) {
-      const { token, owner_id } = response.data;
+      // const { token, owner_id } = response.data;
       // await AsyncStorage.setItem("authToken", token);
       // await AsyncStorage.setItem("owner_id", owner_id.toString());
       navigation.navigate("signInScreen");

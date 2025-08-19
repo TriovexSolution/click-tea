@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, StyleSheet, TouchableOpacity,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Linking
 } from 'react-native';
 import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,27 +25,81 @@ const LocationScreen = () => {
   const [loading, setLoading] = useState(true);
  const navigation = useNavigation();
 
-  const requestLocation = async () => {
-    setLoading(true);
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.warn('Permission not granted');
-        setLoading(false);
-        return;
-      }
-      const currentLoc = await Location.getCurrentPositionAsync({});
-      const coords = {
-        latitude: currentLoc.coords.latitude,
-        longitude: currentLoc.coords.longitude,
-      };
-      dispatch(setLocation(coords));
-      await saveLocationToStorage(coords.latitude, coords.longitude);
-    } catch (err) {
-      console.warn('Error fetching location', err);
+  // const requestLocation = async () => {
+  //   setLoading(true);
+  //   try {
+  //     const { status } = await Location.requestForegroundPermissionsAsync();
+  //     if (status !== 'granted') {
+  //       console.warn('Permission not granted');
+  //       setLoading(false);
+  //       return;
+  //     }
+  //     const currentLoc = await Location.getCurrentPositionAsync({});
+  //     const coords = {
+  //       latitude: currentLoc.coords.latitude,
+  //       longitude: currentLoc.coords.longitude,
+  //     };
+  //     dispatch(setLocation(coords));
+  //     await saveLocationToStorage(coords.latitude, coords.longitude);
+  //   } catch (err) {
+  //     console.warn('Error fetching location', err);
+  //   }
+  //   setLoading(false);
+  // };
+const requestLocation = async () => {
+  setLoading(true);
+  try {
+    const servicesEnabled = await Location.hasServicesEnabledAsync();
+    if (!servicesEnabled) {
+      Alert.alert(
+        "Enable Location",
+        "Please turn on device location to continue.",
+        [
+          {
+            text: "Go to Settings",
+            onPress: () => {
+              if (Platform.OS === "android") Linking.openSettings();
+            },
+          },
+        ]
+      );
+      setLoading(false);
+      return;
     }
+
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        "Permission Denied",
+        "Location permission is required to continue.",
+        [
+          {
+            text: "Retry",
+            onPress: () => requestLocation(),
+          },
+          {
+            text: "Cancel",
+          },
+        ]
+      );
+      setLoading(false);
+      return;
+    }
+
+    const currentLoc = await Location.getCurrentPositionAsync({});
+    const coords = {
+      latitude: currentLoc.coords.latitude,
+      longitude: currentLoc.coords.longitude,
+    };
+    dispatch(setLocation(coords));
+    await saveLocationToStorage(coords.latitude, coords.longitude);
+
+  } catch (err) {
+    console.warn('Error fetching location', err);
+  } finally {
     setLoading(false);
-  };
+  }
+};
 
   useEffect(() => {
     const loadStoredLocation = async () => {
@@ -57,12 +114,23 @@ const LocationScreen = () => {
     loadStoredLocation();
   }, []);
 
-  const handleProceed = () => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'bottomTabScreen' }],
-    });
-  };
+  // const handleProceed = () => {
+  //   navigation.reset({
+  //     index: 0,
+  //     routes: [{ name: 'bottomTabScreen' }],
+  //   });
+  // };
+const handleProceed = () => {
+  if (!location.latitude || !location.longitude) {
+    Alert.alert("Location Required", "Please enable location to proceed.");
+    return;
+  }
+  navigation.reset({
+    index: 0,
+    routes: [{ name: "bottomTabScreen" }],
+  });
+};
+
   return (
     <SafeAreaView style={styles.safe}>
       <Text style={styles.title}>Choose Location</Text>

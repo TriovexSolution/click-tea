@@ -245,6 +245,8 @@ const getNearbyShops = async (req, res) => {
 
   try {
     const [results] = await db.query(query, params);
+    // console.log("Nearby shops query results:", results);
+
     res.status(200).json(results);
   } catch (err) {
     console.error("Error fetching nearby shops:", err);

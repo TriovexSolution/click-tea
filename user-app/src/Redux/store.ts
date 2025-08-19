@@ -4,11 +4,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import selectedShopReducer from "./Slice/selectedShopSlice";
 import cartReducer from './Slice/cartSlice';
 import locationReducer from './Slice/locationSlice'
+import serviceReducer from './Slice/serviceAvailablilitySlice'
 // 1️⃣ Combine reducers
 const rootReducer = combineReducers({
   cart:cartReducer,
   selectedShop: selectedShopReducer,
-  location:locationReducer
+  location:locationReducer,
+  service:serviceReducer// later add thi line bcz when app is started then app is crash 
 });
 // 2️⃣ Create persist config
 const persistConfig = {

@@ -450,7 +450,7 @@
 // export default HomeScreen;
 
 // src/screens/HomeScreen.tsx
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -462,352 +462,381 @@ import {
   TextInput,
   ActivityIndicator,
   RefreshControl,
+  Alert,
+  Platform,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
 } from "react-native";
-import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { ParamListBase } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { ParamListBase } from "@react-navigation/native";
 import { useDispatch, useSelector } from "react-redux";
 import { useDebounce } from "use-debounce";
-import theme from "@/src/assets/colors/theme";
-import { BASE_URL } from "@/api";
 import { Ionicons } from "@expo/vector-icons";
+
+import apiClient from "@/src/api/client"; // use the client above
+import theme from "@/src/assets/colors/theme";
 import { hp, wp } from "@/src/assets/utils/responsive";
 import { setSelectedShopId } from "@/src/Redux/Slice/selectedShopSlice";
+import SideMenuModal from "@/src/Common/SlideMenuModal";
 
-// Types (adjust these according to your real types)
-type CategoryType = {
-  categoryId: number;
-  categoryName: string;
-  categoryImage?: string;
-};
+type RootState = any; // replace with your actual RootState
+type CategoryType = { categoryId: number; categoryName: string; categoryImage?: string | null };
 type ItemType = {
-  id: number;
-  name: string;
-  price: number;
-  image?: string;
+  menuName: string | undefined; menuId: number; name?: string; price?: number; imageUrl?: string | null 
 };
-type ShopType = {
-  id: number;
-  shopname: string;
-  shopImage?: string;
-};
+type ShopType = { id: number; shopname: string; shopImage?: string | null };
 
+const PAGE_SIZE = 10;
 
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>();
   const dispatch = useDispatch();
-  const location = useSelector((s: any) => s.location); // Replace `any` with RootState if defined
+  const location = useSelector((s: RootState) => s.location);
+
   const lat = location?.latitude;
   const lng = location?.longitude;
 
+  // UI state
   const [searchText, setSearchText] = useState("");
   const [sideMenuVisible, setSideMenuVisible] = useState(false);
 
+  // Data state
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [popularItems, setPopularItems] = useState<ItemType[]>([]);
   const [shops, setShops] = useState<ShopType[]>([]);
 
+  // meta / loading state
   const [page, setPage] = useState(1);
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [loadingPopular, setLoadingPopular] = useState(false);
   const [loadingShops, setLoadingShops] = useState(false);
-
   const [refreshing, setRefreshing] = useState(false);
   const [totalShops, setTotalShops] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Debounce searchText to avoid rapid API calls
+  // debounced search
   const [debouncedSearchText] = useDebounce(searchText, 500);
 
-  const getToken = async () => {
+  // AbortController refs for each request so we can cancel when needed
+  const categoriesAbort = useRef<AbortController | null>(null);
+  const popularAbort = useRef<AbortController | null>(null);
+  const shopsAbort = useRef<AbortController | null>(null);
+
+  // token cache - to avoid repeated AsyncStorage gets per request
+  const tokenRef = useRef<string | null>(null);
+  const getToken = useCallback(async () => {
+    if (tokenRef.current) return tokenRef.current;
     try {
-      return await AsyncStorage.getItem("authToken");
+      const t = await AsyncStorage.getItem("authToken");
+      tokenRef.current = t;
+      return t;
     } catch {
       return null;
     }
-  };
+  }, []);
 
+  // Helper to build authorization header (nullable)
+  const buildAuthHeaders = useCallback(async () => {
+    const token = await getToken();
+    return token ? { Authorization: `Bearer ${token}` } : undefined;
+  }, [getToken]);
+
+  // Fetchers (cancel previous when re-run)
   const fetchCategories = useCallback(async () => {
     setLoadingCategories(true);
-    const token = await getToken();
+    categoriesAbort.current?.abort();
+    categoriesAbort.current = new AbortController();
     try {
-      const res = await axios.get(`${BASE_URL}/api/category/categories-with-menus`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      const headers = await buildAuthHeaders();
+      const res = await apiClient.get("/api/category/categories-with-menus", {
+        headers,
+        signal: categoriesAbort.current.signal,
       });
-      setCategories(Array.isArray(res.data.data) ? res.data.data : []);
-    } catch (err) {
-      console.warn("categories fetch error", err);
-      setCategories([]);
+      // API returns { data: [...] } in your original code — adapt defensively
+      const arr = Array.isArray(res?.data?.data) ? res.data.data : Array.isArray(res?.data) ? res.data : [];
+      setCategories(arr);
+    } catch (err: any) {
+      if (err?.name === "CanceledError") {
+        // cancelled - no need to surface to user
+      } else {
+        console.warn("categories fetch error", err?.response?.status ?? err.message);
+        setCategories([]);
+      }
     } finally {
       setLoadingCategories(false);
     }
-  }, []);
+  }, [buildAuthHeaders]);
 
   const fetchPopularItems = useCallback(async () => {
     if (!lat || !lng) return;
     setLoadingPopular(true);
-    const token = await getToken();
+    popularAbort.current?.abort();
+    popularAbort.current = new AbortController();
     try {
-      const res = await axios.get(`${BASE_URL}/api/orders/popular-items`, {
+      const headers = await buildAuthHeaders();
+      const res = await apiClient.get("/api/orders/popular-items", {
         params: { lat, lng },
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        headers,
+        signal: popularAbort.current.signal,
       });
-      setPopularItems(res.data || []);
-    } catch (err) {
-      console.warn("popular items fetch error", err);
-      setPopularItems([]);
+      // Accept array or object with popularItems
+      const payload = Array.isArray(res?.data) ? res.data : res?.data?.popularItems ?? res?.data?.items ?? res?.data ?? [];
+      setPopularItems(Array.isArray(payload) ? payload : []);
+    } catch (err: any) {
+      if (err?.name === "CanceledError") {
+        // ignore
+      } else {
+        console.warn("popular items fetch error", err?.response?.status ?? err.message);
+        setPopularItems([]);
+      }
     } finally {
       setLoadingPopular(false);
     }
-  }, [lat, lng]);
+  }, [lat, lng, buildAuthHeaders]);
 
   const fetchShops = useCallback(
     async (pageToLoad = 1, append = false) => {
       if (!lat || !lng) return;
       setLoadingShops(true);
-      const token = await getToken();
+      shopsAbort.current?.abort();
+      shopsAbort.current = new AbortController();
+
       try {
-        const res = await axios.get(`${BASE_URL}/api/shops/nearby`, {
+        const headers = await buildAuthHeaders();
+        const offset = (pageToLoad - 1) * PAGE_SIZE;
+        const res = await apiClient.get("/api/shops/nearby", {
           params: {
             lat,
             lng,
             onlyOpen: true,
-            limit: 10,
-            page: pageToLoad,
-            q: debouncedSearchText || undefined,
+            limit: PAGE_SIZE,
+            offset,
+            search: debouncedSearchText || undefined,
           },
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          headers,
+          signal: shopsAbort.current.signal,
         });
-        const data = Array.isArray(res.data)
-          ? res.data
-          : res.data.items || [];
-        const total =
-          res.data.total || (Array.isArray(res.data) ? data.length : null);
+
+        // normalize response (support array or { items:[], total } shapes)
+        const data = Array.isArray(res?.data) ? res.data : res?.data?.items ?? [];
+        const total = Number(res?.data?.total ?? (Array.isArray(res?.data) ? res.data.length : null)) || null;
+
         setTotalShops(total);
-        setShops((prev) => (append ? [...prev, ...data] : data));
+        setShops(prev => (append ? [...prev, ...data] : data));
         setPage(pageToLoad);
-      } catch (err) {
-        console.error("Error fetching shops:", err);
+      } catch (err: any) {
+        if (err?.name === "CanceledError") {
+          // ignore
+        } else {
+          console.error("Error fetching shops:", err?.response?.status ?? err.message);
+        }
       } finally {
         setLoadingShops(false);
         setRefreshing(false);
       }
     },
-    [lat, lng, debouncedSearchText]
+    [lat, lng, debouncedSearchText, buildAuthHeaders]
   );
 
-  // On mount and lat/lng changes: fetch all data in parallel
+  // Combined fetch triggered on mount and location changes
   useEffect(() => {
-    if (!lat || !lng) return;
+    if (!lat || !lng) {
+      // push to location screen once (don't block render)
+      navigation.replace("locationScreen" as never);
+      return;
+    }
+
+    // reset token cache each time location changes? not necessary but safe
+    tokenRef.current = tokenRef.current ?? null;
+
+    // fetch in parallel (but each has its own abort controller)
     fetchCategories();
     fetchPopularItems();
     fetchShops(1, false);
-  }, [lat, lng, fetchCategories, fetchPopularItems, fetchShops]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lat, lng]);
 
-  const onRefresh = async () => {
+  // When debounced search changes, refetch shops (page 1)
+  useEffect(() => {
+    if (!lat || !lng) return;
+    fetchShops(1, false);
+  }, [debouncedSearchText, lat, lng, fetchShops]);
+
+  // Refresh handler
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchShops(1, false);
-    await fetchCategories();
-    await fetchPopularItems();
+    await Promise.allSettled([fetchShops(1, false), fetchCategories(), fetchPopularItems()]);
     setRefreshing(false);
-  };
+  }, [fetchShops, fetchCategories, fetchPopularItems]);
 
-  const handleLoadMore = () => {
+  const handleLoadMore = useCallback(() => {
     if (loadingShops) return;
     if (totalShops !== null && shops.length >= totalShops) return;
     fetchShops(page + 1, true);
-  };
+  }, [loadingShops, totalShops, shops.length, page, fetchShops]);
 
-  const handleOpenShop = (shopId: number) => {
-    dispatch(setSelectedShopId(shopId));
-    navigation.navigate("shopDetailScreen" as never);
-  };
+  const handleOpenShop = useCallback(
+    (shopId: number) => {
+      dispatch(setSelectedShopId(shopId));
+      navigation.navigate("shopDetailScreen" as never);
+    },
+    [dispatch, navigation]
+  );
 
-  // Memoized renderers for performance
-  const RenderCategoryItem = React.memo(({ item }: { item: CategoryType }) => (
-    <TouchableOpacity style={styles.categoryItem}>
-      <Image
-        source={
-          item.categoryImage
-            ? { uri: `${BASE_URL}/uploads/categories/${item.categoryImage}` }
-            : require("@/src/assets/images/onBoard1.png")
-        }
-        style={styles.categoryImage}
-      />
-      <Text style={styles.categoryName} numberOfLines={1}>
-        {item.categoryName}
-      </Text>
-    </TouchableOpacity>
-  ));
-
-  const RenderPopularItem = React.memo(({ item }: { item: ItemType }) => (
+  // memoized renderers
+const RenderCategoryItem = useCallback(({ item }: { item: CategoryType }) => {
+  return (
     <View style={styles.popularItem}>
       <View style={styles.popularCircle}>
-        {item.image && (
+        {item.categoryImage ? (
           <Image
-            source={{ uri: `${BASE_URL}/uploads/items/${item.image}` }}
+            source={{ uri: `${apiClient.defaults.baseURL}/uploads/categories/${item.categoryImage}` }}
+            style={styles.popularImg} // 🔥 reuse same style as popularImg
+          />
+        ) : (
+          <Image
+            source={require("@/src/assets/images/onBoard1.png")}
             style={styles.popularImg}
           />
         )}
       </View>
       <Text style={styles.popularName} numberOfLines={1}>
-        {item.name}
+        {item.categoryName}
       </Text>
-      <Text style={styles.popularPrice}>₹{item.price}</Text>
     </View>
-  ));
+  );
+}, []);
 
-  const RenderShopCard = React.memo(({ item }: { item: ShopType }) => (
-    <Pressable style={styles.shopCard} onPress={() => handleOpenShop(item.id)}>
-      <Image
-        source={
-          item.shopImage
-            ? { uri: `${BASE_URL}/uploads/shops/${item.shopImage}` }
-            : require("@/src/assets/images/onBoard1.png")
-        }
-        style={styles.shopImage}
-      />
-      <View style={styles.shopDetails}>
-        <Text style={styles.shopName}>{item.shopname}</Text>
-        <View style={styles.shopMeta}>
-          <Ionicons name="star" size={12} color="#FFC107" />
-          <Text style={styles.metaText}>4.5</Text>
-          <Text style={styles.metaText}> • 15-20 min</Text>
+
+  const RenderPopularItem = useCallback(({ item }: { item: ItemType }) => {
+    return (
+      <View style={styles.popularItem}>
+        <View style={styles.popularCircle}>
+          {item.imageUrl ? (
+            <Image source={{ uri: `${apiClient.defaults.baseURL}/uploads/menus/${item.imageUrl}` }} style={styles.popularImg} />
+          ) : null}
         </View>
-        <View style={styles.tagRow}>
-          <Text style={styles.tag}>Masala Chai</Text>
-          <Text style={styles.tag}>Filter Coffee</Text>
-          <Text style={styles.tag}>Samosa</Text>
-        </View>
-        <TouchableOpacity style={styles.viewMenuBtn}>
-          <Text style={styles.viewMenuText}>View Menu</Text>
-        </TouchableOpacity>
+        <Text style={styles.popularName} numberOfLines={1}>
+          {item.name ?? item.menuName}
+        </Text>
+        <Text style={styles.popularPrice}>₹{item.price ?? item.mPrice ?? "—"}</Text>
       </View>
-    </Pressable>
-  ));
+    );
+  }, []);
 
-  const ListHeader = () => {
-    const limitedCategories = Array.isArray(categories)
-      ? categories.slice(0, 7)
-      : [];
+  const RenderShopCard = useCallback(({ item }: { item: ShopType }) => {
+    return (
+      <Pressable style={styles.shopCard} onPress={() => handleOpenShop(item.id)} accessibilityRole="button">
+        <Image
+          source={item.shopImage ? { uri: `${apiClient.defaults.baseURL}/uploads/shops/${item.shopImage}` } : require("@/src/assets/images/onBoard1.png")}
+          style={styles.shopImage}
+        />
+        <View style={styles.shopDetails}>
+          <Text style={styles.shopName}>{item.shopname}</Text>
+          <View style={styles.shopMeta}>
+            <Ionicons name="star" size={12} color="#FFC107" />
+            <Text style={styles.metaText}>4.5</Text>
+            <Text style={styles.metaText}> • 15-20 min</Text>
+          </View>
+          <View style={styles.tagRow}>
+            <Text style={styles.tag}>Masala Chai</Text>
+            <Text style={styles.tag}>Filter Coffee</Text>
+            <Text style={styles.tag}>Samosa</Text>
+          </View>
+          <TouchableOpacity style={styles.viewMenuBtn}>
+            <Text style={styles.viewMenuText}>View Menu</Text>
+          </TouchableOpacity>
+        </View>
+      </Pressable>
+    );
+  }, [handleOpenShop]);
 
+  const ListHeader = useMemo(() => {
+    const limitedCategories = Array.isArray(categories) ? categories.slice(0, 7) : [];
     return (
       <View>
-        {/* Greeting & Location */}
         <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.greeting}>Good Morning!</Text>
-            <Text style={styles.subLocation}>Koramangala, Bangalore</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Pressable onPress={() => setSideMenuVisible(true)}>
+              <Ionicons name="menu-outline" size={hp(3)} />
+            </Pressable>
+
+            <TouchableOpacity style={styles.locationRow} onPress={() => navigation.navigate("locationScreen" as never)}>
+              <Text style={styles.subLocation} numberOfLines={1}>
+                {location ? `${location.latitude}, ${location.longitude}` : "Select Location"}
+              </Text>
+              <Ionicons name="chevron-down" size={18} color={theme.PRIMARY_COLOR} style={{ marginLeft: 4 }} />
+            </TouchableOpacity>
           </View>
-          <Ionicons
-            name="notifications-outline"
-            size={hp(3)}
-            color={theme.PRIMARY_COLOR}
-          />
+
+          <Ionicons name="notifications-outline" size={hp(3)} color={theme.PRIMARY_COLOR} />
         </View>
 
-        {/* Search Bar */}
         <View style={styles.searchRow}>
-          <TextInput
-            placeholder="Search for tea, Coffee, Snacks..."
-            style={styles.searchInput}
-            placeholderTextColor="#999"
-            value={searchText}
-            onChangeText={setSearchText}
-            returnKeyType="search"
-          />
-          <Ionicons
-            name="search"
-            size={hp(2.4)}
-            color="#999"
-            style={styles.searchIcon}
-          />
+          <TextInput placeholder="Search for tea, Coffee, Snacks..." style={styles.searchInput} placeholderTextColor="#999" value={searchText} onChangeText={setSearchText} returnKeyType="search" />
+          <Ionicons name="search" size={hp(2.4)} color="#999" style={styles.searchIcon} />
         </View>
 
-        {/* Categories Section */}
         <View style={styles.categorySectionHeader}>
           <Text style={styles.sectionTitle}>Categories</Text>
-          <TouchableOpacity
-            onPress={() => navigation.navigate("viewAllCategoryScreen")}
-          >
+          <TouchableOpacity onPress={() => navigation.navigate("viewAllCategoryScreen")}>
             <Text style={styles.viewAllText}>View All</Text>
           </TouchableOpacity>
         </View>
 
         {loadingCategories ? (
-          <ActivityIndicator
-            size="small"
-            color={theme.PRIMARY_COLOR}
-            style={{ paddingVertical: hp(2) }}
-          />
+          <ActivityIndicator size="small" color={theme.PRIMARY_COLOR} style={{ paddingVertical: hp(2) }} />
         ) : (
-          <FlatList
-            data={limitedCategories}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(item) => item.categoryId.toString()}
-            renderItem={({ item }) => <RenderCategoryItem item={item} />}
-            contentContainerStyle={styles.categoryList}
-          />
+          <FlatList data={limitedCategories} horizontal showsHorizontalScrollIndicator={false} keyExtractor={(it) => String(it.categoryId)} renderItem={({ item }) => <RenderCategoryItem item={item} />} contentContainerStyle={styles.categoryList} />
         )}
 
-        {/* Popular Items Section */}
         <Text style={styles.sectionTitle}>Popular Items</Text>
         {loadingPopular ? (
-          <ActivityIndicator
-            size="small"
-            color={theme.PRIMARY_COLOR}
-            style={{ paddingVertical: hp(2) }}
-          />
+          <ActivityIndicator size="small" color={theme.PRIMARY_COLOR} style={{ paddingVertical: hp(2) }} />
         ) : popularItems.length > 0 ? (
-          <FlatList
-            data={popularItems}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(i) => `${i.id}`}
-            renderItem={({ item }) => <RenderPopularItem item={item} />}
-            contentContainerStyle={{ paddingLeft: wp(4), paddingVertical: hp(1) }}
-          />
+          <FlatList data={popularItems} horizontal showsHorizontalScrollIndicator={false} keyExtractor={(it) => String((it as any).menuId ?? (it as any).id ?? Math.random())} renderItem={({ item }) => <RenderPopularItem item={item} />} contentContainerStyle={{ paddingLeft: wp(4), paddingVertical: hp(1) }} />
         ) : (
           <View style={{ padding: 20, alignItems: "center" }}>
-            <Text style={{ fontSize: 16, color: "#888" }}>
-              No popular items available right now.
-            </Text>
+            <Text style={{ fontSize: 16, color: "#888" }}>No popular items available right now.</Text>
           </View>
         )}
 
-        {/* Vendors Section */}
         <Text style={styles.sectionTitle}>Nearby Vendors (within 1KM)</Text>
       </View>
     );
-  };
+  }, [categories, loadingCategories, popularItems, loadingPopular, navigation, location, searchText, RenderCategoryItem, RenderPopularItem]);
 
+  // main render
   return (
     <View style={styles.container}>
+      {error ? <Text style={{ color: "red", textAlign: "center" }}>{error}</Text> : null}
       <FlatList
         data={shops}
         keyExtractor={(item) => `${item.id}`}
         renderItem={({ item }) => <RenderShopCard item={item} />}
-        ListHeaderComponent={<ListHeader />}
+        ListHeaderComponent={shops.length > 0 ? ListHeader : null}
         ListEmptyComponent={
           !loadingShops ? (
             <View style={styles.noShop}>
-              <Text>No Nearby Shops Available</Text>
+              <Ionicons name="location-outline" size={48} color={theme.PRIMARY_COLOR} />
+              <Text style={styles.emptyText}>Sorry, service is not available in your area yet.</Text>
+              <TouchableOpacity style={styles.changeLocationBtn} onPress={() => navigation.navigate("locationScreen" as never)}>
+                <Text style={styles.changeLocationText}>Change Location</Text>
+              </TouchableOpacity>
+              <Text style={styles.comingSoonText}>🚀 Coming soon ClickTea at your nearby location</Text>
             </View>
           ) : (
             <ActivityIndicator size="large" color={theme.PRIMARY_COLOR} />
           )
         }
-        onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        onEndReached={handleLoadMore}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.PRIMARY_COLOR} />}
         contentContainerStyle={{ paddingBottom: hp(10) }}
       />
-      {/* Replace with your actual side menu */}
-      {/* <SideMenuModal visible={sideMenuVisible} onClose={() => setSideMenuVisible(false)} /> */}
+      <SideMenuModal visible={sideMenuVisible} onClose={() => setSideMenuVisible(false)} />
     </View>
   );
 };
@@ -816,136 +845,44 @@ export default HomeScreen;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: wp(4),
-    paddingTop: hp(2),
-  },
-  greeting: {
-    fontSize: hp(2.4),
-    fontWeight: "600",
-    color: theme.PRIMARY_COLOR,
-  },
+  locationRow: { flexDirection: "row", alignItems: "center", maxWidth: wp(60) },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: wp(4), paddingTop: hp(2) },
+  greeting: { fontSize: hp(2.4), fontWeight: "600", color: theme.PRIMARY_COLOR },
   subLocation: { fontSize: hp(1.5), color: "#666" },
+  emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", marginTop: 50 },
+  noShop: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
+  emptyText: { fontSize: 16, color: "gray", marginVertical: 10, textAlign: "center" },
+  changeLocationBtn: { marginTop: 15, paddingVertical: 10, paddingHorizontal: 20, backgroundColor: theme.PRIMARY_COLOR, borderRadius: 8 },
+  changeLocationText: { color: "white", fontSize: 16, fontWeight: "bold" },
+  comingSoonText: { marginTop: 20, fontSize: 14, color: "#888", textAlign: "center" },
 
-  searchRow: {
-    marginTop: hp(1.5),
-    marginHorizontal: wp(4),
-    backgroundColor: "#f2f2f2",
-    borderRadius: hp(3),
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: wp(3),
-  },
-  searchInput: {
-    flex: 1,
-    height: hp(5),
-    fontSize: hp(1.7),
-    color: "#333",
-  },
+  searchRow: { marginTop: hp(1.5), marginHorizontal: wp(4), backgroundColor: "#f2f2f2", borderRadius: hp(3), flexDirection: "row", alignItems: "center", paddingHorizontal: wp(3) },
+  searchInput: { flex: 1, height: hp(5), fontSize: hp(1.7), color: "#333" },
   searchIcon: { marginLeft: wp(2) },
 
   categoryList: { paddingHorizontal: wp(4), paddingVertical: hp(1.2) },
-  categoryItem: {
-    width: wp(18),
-    marginRight: wp(3),
-    alignItems: "center",
-  },
-  categoryImage: {
-    width: wp(16),
-    height: wp(16),
-    borderRadius: wp(8),
-    backgroundColor: "#f2f2f2",
-  },
-  categoryName: {
-    marginTop: hp(0.5),
-    fontSize: hp(1.4),
-    color: "#333",
-    textAlign: "center",
-  },
+  categoryItem: { width: wp(18), marginRight: wp(3), alignItems: "center" },
+  categoryImage: { width: wp(16), height: wp(16), borderRadius: wp(8), backgroundColor: "#f2f2f2" },
+  categoryName: { marginTop: hp(0.5), fontSize: hp(1.4), color: "#333", textAlign: "center" },
 
-  categorySectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: hp(1),
-    marginRight: wp(4),
-  },
-  sectionTitle: {
-    fontSize: hp(2),
-    fontWeight: "600",
-    color: "#333",
-    marginTop: hp(1),
-    paddingHorizontal: wp(4),
-  },
-  viewAllText: {
-    color: theme.PRIMARY_COLOR,
-    fontWeight: "600",
-    fontSize: hp(1.6),
-  },
+  categorySectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: hp(1), marginRight: wp(4) },
+  sectionTitle: { fontSize: hp(2), fontWeight: "600", color: "#333", marginTop: hp(1), paddingHorizontal: wp(4) },
+  viewAllText: { color: theme.PRIMARY_COLOR, fontWeight: "600", fontSize: hp(1.6) },
 
   popularItem: { width: wp(20), alignItems: "center", marginRight: wp(3) },
-  popularCircle: {
-    width: wp(16),
-    height: wp(16),
-    borderRadius: wp(8),
-    backgroundColor: "#eaeaea",
-    marginBottom: hp(0.8),
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  popularCircle: { width: wp(16), height: wp(16), borderRadius: wp(8), backgroundColor: "#eaeaea", justifyContent: "center", alignItems: "center" },
   popularImg: { width: "100%", height: "100%", borderRadius: wp(8) },
   popularName: { fontSize: hp(1.5), color: "#333", textAlign: "center" },
   popularPrice: { fontSize: hp(1.3), color: "#666" },
 
-  shopCard: {
-    flexDirection: "row",
-    borderBottomWidth:1,
-    marginHorizontal: wp(4),
-    // marginVertical: hp(1),
-    // backgroundColor: "#fff",
-    // borderRadius: 10,
-    // borderWidth: 1,
-    borderColor: "#eee",
-    // alignItems:"center"
-    // overflow: "hidden",
-    // elevation: 2, // subtle shadow on Android
-    // shadowColor: "#000", // shadow for iOS
-    // shadowOffset: { width: 0, height: 1 },
-    // shadowOpacity: 0.2,
-    // shadowRadius: 2,
-  },
-  shopImage: { width: wp(20), height: wp(20),borderRadius:6, backgroundColor: "#f2f2f2",alignSelf:"flex-start",marginTop:hp(2) },
+  shopCard: { flexDirection: "row", borderBottomWidth: 1, marginHorizontal: wp(4), borderColor: "#eee" },
+  shopImage: { width: wp(20), height: wp(20), borderRadius: 6, backgroundColor: "#f2f2f2", alignSelf: "flex-start", marginTop: hp(2) },
   shopDetails: { flex: 1, padding: wp(3) },
-  shopName: {
-    fontSize: hp(1.9),
-    fontWeight: "600",
-    color: theme.PRIMARY_COLOR,
-  },
+  shopName: { fontSize: hp(1.9), fontWeight: "600", color: theme.PRIMARY_COLOR },
   shopMeta: { flexDirection: "row", alignItems: "center", marginTop: hp(0.5) },
   metaText: { fontSize: hp(1.4), color: "#666", marginLeft: 4 },
   tagRow: { flexDirection: "row", flexWrap: "wrap", marginTop: hp(0.6) },
-  tag: {
-    backgroundColor: "#f2f2f2",
-    paddingHorizontal: wp(2),
-    paddingVertical: hp(0.4),
-    borderRadius: 8,
-    marginRight: wp(2),
-    fontSize: hp(1.3),
-    color: "#666",
-  },
-  viewMenuBtn: {
-    backgroundColor: theme.PRIMARY_COLOR,
-    paddingVertical: hp(0.8),
-    paddingHorizontal: wp(3),
-    borderRadius: 8,
-    marginTop: hp(0.8),
-    alignSelf: "flex-start",
-  },
+  tag: { backgroundColor: "#f2f2f2", paddingHorizontal: wp(2), paddingVertical: hp(0.4), borderRadius: 8, marginRight: wp(2), fontSize: hp(1.3), color: "#666" },
+  viewMenuBtn: { backgroundColor: theme.PRIMARY_COLOR, paddingVertical: hp(0.8), paddingHorizontal: wp(3), borderRadius: 8, marginTop: hp(0.8), alignSelf: "flex-start" },
   viewMenuText: { color: "#fff", fontSize: hp(1.4), fontWeight: "600" },
-
-  noShop: { padding: hp(4), alignItems: "center" },
 });
