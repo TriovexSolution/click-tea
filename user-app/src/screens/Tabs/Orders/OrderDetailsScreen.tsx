@@ -48,7 +48,7 @@ const OrderDetailsScreen = () => {
 
     try {
       setLoading(true);
-      setError(null);
+      setError(null); 
 
       const token = await AsyncStorage.getItem("authToken");
       const headers: Record<string, string> = {};

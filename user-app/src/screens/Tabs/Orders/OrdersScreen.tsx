@@ -7,6 +7,7 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
+  RefreshControl,
 } from "react-native";
 import React, { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -21,6 +22,8 @@ import { timeAgo } from "@/src/assets/utils/timeAgo";
 const OrdersScreen = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
   const navigation = useNavigation();
 
   useEffect(() => {
@@ -67,6 +70,12 @@ const OrdersScreen = () => {
       Alert.alert("Error", "Failed to cancel order.");
     }
   };
+  const onRefresh = async () => {
+  setRefreshing(true);
+  await fetchMyOrders(); // call your existing fetch function
+  setRefreshing(false);
+};
+
 
   const renderOrderCard = (item: any, ongoing = false) => (
     <View
@@ -150,6 +159,14 @@ const OrdersScreen = () => {
         <ScrollView
           contentContainerStyle={{ paddingBottom: hp(10), paddingHorizontal: wp(5) }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      colors={[theme.PRIMARY_COLOR]} // Android
+      tintColor={theme.PRIMARY_COLOR} // iOS
+    />
+  }
         >
           {/* Ongoing */}
           {ongoingOrders.length > 0 && (

@@ -8,7 +8,8 @@ const {
   updateMenu,
   deleteMenu,
   getMenusByShopId,
-  getMenusByCategory
+  getMenusByCategory,
+  getMenuById
 } = require("../controllers/menuController");
 
 const { verifyToken, authorizeRoles } = require("../middleware/authMiddleware");
@@ -59,4 +60,7 @@ router.get("/public/:shopId", getMenusByShopId);
 // ✅ Add this route in your routes/menu.js or wherever you define routes
 router.get("/public/:shopId/category/:categoryId", getMenusByCategory);
 
+// Public single menu endpoint
+// GET /api/menu/:id
+router.get("/:id",verifyToken, getMenuById);
 module.exports = router;

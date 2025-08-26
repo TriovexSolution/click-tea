@@ -11,12 +11,14 @@ import Animated, {
   Easing, 
   runOnJS 
 } from "react-native-reanimated";
+import { useNavigation } from "@react-navigation/native";
 
 const { width } = Dimensions.get("window");
 
 const SideMenuModal = ({ visible, onClose }: { visible: boolean, onClose: () => void }) => {
   const [showModal, setShowModal] = useState(visible);
   const translateX = useSharedValue(-width);
+  const navigation = useNavigation();
 
   useEffect(() => {
     if (visible) {
@@ -36,8 +38,8 @@ const SideMenuModal = ({ visible, onClose }: { visible: boolean, onClose: () => 
 
   const menuItems = [
     { label: "Home", icon: "home-outline" },
-    { label: "Cart", icon: "cart-outline" },
-    { label: "Order History", icon: "receipt-outline" },
+    { label: "Cart", icon: "cart-outline" ,screen: "cartScreen"},
+    { label: "Order History", icon: "receipt-outline",screen: "orderScreen" },
     { label: "Offer & Coupons", icon: "pricetag-outline" },
     { label: "Notification", icon: "notifications-outline" },
     { label: "Subscription", icon: "card-outline" },
@@ -61,7 +63,11 @@ const SideMenuModal = ({ visible, onClose }: { visible: boolean, onClose: () => 
           data={menuItems}
           keyExtractor={(item, index) => index.toString()}
           renderItem={({ item }) => (
-            <TouchableOpacity style={styles.menuItem}>
+            <TouchableOpacity style={styles.menuItem}  onPress={() => {
+      navigation.navigate(item.screen as never);
+      onClose(); // close menu after navigation
+      
+    }}>
               <LinearGradient colors={["#fff", "#f0f0f0"]} style={styles.iconWrapper}>
                 <Ionicons name={item.icon as any} size={hp(3)} color={theme.PRIMARY_COLOR} />
               </LinearGradient>

@@ -1,3 +1,4 @@
+// src/screens/ChangeAddressScreen.tsx
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
@@ -17,93 +18,120 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BASE_URL } from "@/api";
-import { getUserIdFromToken } from "@/src/assets/utils/getUserIdFromToken";
+import { useAddress } from "@/src/context/addressContext";
 
 type AddressItem = {
   id: string;
   addressType: string;
-  fullName: string;
-  phoneNumber: string;
-  pincode: string;
-  state: string;
-  city: string;
+  fullName?: string;
+  phoneNumber?: string;
+  pincode?: string;
+  state?: string;
+  city?: string;
   houseNumber?: string;
   roadArea?: string;
   landmark?: string;
 };
 
+const getTokenFromStorage = async () => {
+  try {
+    return await AsyncStorage.getItem("authToken");
+  } catch (err) {
+    console.warn("getTokenFromStorage", err);
+    return null;
+  }
+};
+
 const ChangeAddressScreen = () => {
   const [selectedId, setSelectedId] = useState<string>("");
+  const [tempSelectedAddress, setTempSelectedAddress] = useState<AddressItem | null>(null);
   const [savedLocation, setSavedLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [addresses, setAddresses] = useState<AddressItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const navigation = useNavigation();
+  const { selectedAddress, setSelectedAddress, ready } = useAddress();
 
-  // Get stored token for auth header
-  const getToken = async () => {
-    try {
-      return await AsyncStorage.getItem("authToken");
-    } catch {
-      return null;
-    }
-  };
-
-  // Load saved location from local storage
+  // preselect existing global selected address
+useEffect(() => {
+  // wait for context to be ready (loaded from storage)
+  if (ready && selectedAddress) {
+    setSelectedId(selectedAddress.id);
+    setTempSelectedAddress(selectedAddress as AddressItem);
+  }
+}, [selectedAddress, ready]);
+  // load saved location (your helper)
   const loadSavedLocation = async () => {
     try {
       const location = await getLocationFromStorage();
-      if (
-        location &&
-        typeof location.latitude === "number" &&
-        typeof location.longitude === "number"
-      ) {
+      if (location && typeof location.latitude === "number" && typeof location.longitude === "number") {
         setSavedLocation({ latitude: location.latitude, longitude: location.longitude });
+      } else {
+        setSavedLocation(null);
       }
-    } catch (e) {
-      Alert.alert("Error", "Failed to load saved location");
+    } catch (err) {
+      console.warn("loadSavedLocation failed", err);
+      setSavedLocation(null);
     }
   };
 
-  // Fetch addresses from API
-  const fetchAddresses = async () => {
+  // fetch addresses from API
+  const fetchAddresses = useCallback(async () => {
     setLoading(true);
     try {
-     const token = await getToken(); 
-    if (!token) {
-      Alert.alert("Error", "User is not logged in");
-      setLoading(false);
-      return;
-    }
-      const response = await axios.get(`${BASE_URL}/api/address/list`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      const token = await getTokenFromStorage();
+      if (!token) {
+        // user not logged in — show empty or fallback
+        setAddresses([]);
+        setLoading(false);
+        return;
+      }
+      const res = await axios.get(`${BASE_URL}/api/address/list`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 10000,
       });
 
-      if (response.status === 200 && Array.isArray(response.data)) {
-        setAddresses(response.data);
+      if (res.status === 200 && Array.isArray(res.data)) {
+        setAddresses(res.data);
       } else {
-        Alert.alert("Error", "Failed to fetch addresses");
+        console.warn("Unexpected response from address list", res.status, res.data);
+        setAddresses([]);
       }
-    } catch (error) {
-      Alert.alert("Error", "Network error or unauthorized");
+    } catch (err) {
+      console.warn("fetchAddresses error", err);
+      Alert.alert("Error", "Failed to fetch addresses. Please try again.");
+      setAddresses([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // Use focus effect to refresh addresses whenever screen is focused
+  // refresh on focus
   useFocusEffect(
     useCallback(() => {
       loadSavedLocation();
       fetchAddresses();
-    }, [])
+    }, [fetchAddresses])
   );
 
-  // Combine saved location (if any) with fetched addresses
-  const allAddresses = savedLocation
+  // Persist the temp selection to global context when screen blurs (user navigates back)
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        // blur
+        if (tempSelectedAddress) {
+          // setSelectedAddress handles persistence to AsyncStorage
+          setSelectedAddress(tempSelectedAddress).catch((e) => console.warn("persist addr error", e));
+        }
+      };
+    }, [tempSelectedAddress, setSelectedAddress])
+  );
+
+  // combine savedLocation (first item) with fetched addresses
+  const allAddresses: AddressItem[] = savedLocation
     ? [
         {
           id: "saved_location",
-          addressType: "Saved Location",
+          addressType: "Current Location",
           fullName: "",
           phoneNumber: "",
           pincode: "",
@@ -117,40 +145,45 @@ const ChangeAddressScreen = () => {
       ]
     : addresses;
 
+  const onSelectAddress = (item: AddressItem) => {
+    // single-select; allow switching; never toggle off to none via tap
+    if (selectedId !== item.id) {
+      setSelectedId(item.id);
+      setTempSelectedAddress(item);
+    }
+  };
+
   const renderAddress = ({ item }: { item: AddressItem }) => {
     const isSelected = selectedId === item.id;
-    const isDisabled = !isSelected && selectedId !== "";
 
-    // Format addressLine1 and addressLine2 for display
-    const addressLine1 = `${item.houseNumber || ""}${item.houseNumber ? ", " : ""}${item.roadArea || ""}${item.roadArea ? ", " : ""}${item.city}, ${item.state} - ${item.pincode}`;
+    const addressLine1 = `${item.houseNumber || ""}${item.houseNumber ? ", " : ""}${
+      item.roadArea || ""
+    }${item.roadArea ? ", " : ""}${item.city || ""}${item.state ? `, ${item.state}` : ""}${
+      item.pincode ? ` - ${item.pincode}` : ""
+    }`;
     const addressLine2 = item.landmark || "";
 
     return (
       <Pressable
-        onPress={() => {
-          if (isDisabled) return;
-          setSelectedId(isSelected ? "" : item.id);
-        }}
-        disabled={isDisabled}
+        onPress={() => onSelectAddress(item)}
         style={[
           styles.addressCard,
           {
             backgroundColor: isSelected ? "#5C321D" : "#F5F5F5",
-            opacity: isDisabled ? 0.5 : 1,
           },
         ]}
       >
         <View
           style={[
             styles.addressIcon,
-            { backgroundColor: isSelected ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.1)" },
+            { backgroundColor: isSelected ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.05)" },
           ]}
         >
           <Ionicons
             name={
               item.id === "saved_location"
                 ? "locate-outline"
-                : item.addressType.toLowerCase() === "home"
+                : item.addressType?.toLowerCase?.() === "home"
                 ? "home"
                 : "business"
             }
@@ -160,32 +193,27 @@ const ChangeAddressScreen = () => {
         </View>
 
         <View style={{ flex: 1 }}>
-          <Text style={[styles.addressType, { color: isSelected ? "#FFF" : "#4A4A4A" }]}>
+          <Text style={[styles.addressType, { color: isSelected ? "#FFF" : "#333" }]}>
             {item.addressType}
           </Text>
-          <Text style={[styles.addressLine1, { color: isSelected ? "#FFF" : "#6E6E6E" }]}>
+          <Text style={[styles.addressLine1, { color: isSelected ? "#FFF" : "#666" }]}>
             {addressLine1}
           </Text>
-          <Text style={[styles.addressLine2, { color: isSelected ? "#D3D3D3" : "#B0B0B0" }]}>
-            {addressLine2}
-          </Text>
+          {addressLine2 ? (
+            <Text style={[styles.addressLine2, { color: isSelected ? "#EEE" : "#999" }]}>
+              {addressLine2}
+            </Text>
+          ) : null}
         </View>
 
-        {isSelected && (
-          <Ionicons
-            name="checkmark-circle"
-            size={hp(3)}
-            color="#FFF"
-            style={{ marginLeft: wp(2) }}
-          />
-        )}
+        {isSelected && <Ionicons name="checkmark-circle" size={hp(3)} color="#FFF" style={{ marginLeft: wp(2) }} />}
       </Pressable>
     );
   };
 
   return (
     <View style={styles.container}>
-      <CommonHeader title={"Change Address"} />
+      <CommonHeader title="Change Address" />
       <Text style={styles.deliveryText}>Select Delivery Address</Text>
 
       {loading ? (
@@ -195,7 +223,7 @@ const ChangeAddressScreen = () => {
           data={allAddresses}
           renderItem={renderAddress}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: wp(4), paddingTop: hp(2) }}
+          contentContainerStyle={{ paddingHorizontal: wp(4), paddingTop: hp(2), paddingBottom: hp(2) }}
           ItemSeparatorComponent={() => <View style={{ height: hp(1) }} />}
           ListEmptyComponent={() => (
             <Text style={{ textAlign: "center", marginTop: hp(5), color: "#999" }}>
@@ -207,26 +235,18 @@ const ChangeAddressScreen = () => {
 
       <TouchableOpacity
         style={styles.newAddressBtn}
-        onPress={() => navigation.navigate("addNewAddressScreen")}
+        onPress={() => navigation.navigate("addNewAddressScreen" as never)}
         activeOpacity={0.8}
       >
-        <Text style={styles.newAddressText}>New Address</Text>
+        <Text style={styles.newAddressText}>Add New Address</Text>
       </TouchableOpacity>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "white",
-  },
-  deliveryText: {
-    paddingTop: hp(3),
-    marginHorizontal: wp(6),
-    fontSize: hp(2),
-    fontWeight: "500",
-  },
+  container: { flex: 1, backgroundColor: "#fff" },
+  deliveryText: { paddingTop: hp(3), marginHorizontal: wp(6), fontSize: hp(2), fontWeight: "500" },
   addressCard: {
     flexDirection: "row",
     padding: hp(2.5),
@@ -234,31 +254,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.06,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 1,
   },
   addressIcon: {
     width: wp(10),
     height: wp(10),
     borderRadius: wp(5),
-    backgroundColor: "rgba(0,0,0,0.1)",
     justifyContent: "center",
     alignItems: "center",
     marginRight: wp(3),
   },
-  addressType: {
-    fontSize: hp(2.2),
-    fontWeight: "bold",
-  },
-  addressLine1: {
-    fontSize: hp(1.8),
-    marginTop: hp(0.3),
-  },
-  addressLine2: {
-    fontSize: hp(1.5),
-    marginTop: hp(0.3),
-  },
+  addressType: { fontSize: hp(2.0), fontWeight: "700" },
+  addressLine1: { fontSize: hp(1.7), marginTop: hp(0.3) },
+  addressLine2: { fontSize: hp(1.5), marginTop: hp(0.3) },
   newAddressBtn: {
     backgroundColor: "#5C321D",
     marginHorizontal: wp(6),
@@ -268,11 +278,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  newAddressText: {
-    color: "#FFF",
-    fontSize: hp(2.2),
-    fontWeight: "600",
-  },
+  newAddressText: { color: "#FFF", fontSize: hp(2.0), fontWeight: "600" },
 });
 
 export default ChangeAddressScreen;

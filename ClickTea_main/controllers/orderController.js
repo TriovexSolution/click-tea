@@ -1,44 +1,168 @@
 const db = require("../config/db");
+const { sendPushToUsers, emitInApp, notifyUsers } = require("../services/notificatonService");
 // ✅ 1. Place Order (move from cart → orders)
+// const placeOrder = async (req, res) => {
+//   try {
+//     const { cartItems, shopId, totalAmount, payment_type, delivery_note } =
+//       req.body;
+//     const userId = req.user.id;
+
+//     if (!cartItems || cartItems.length === 0) {
+//       return res.status(400).json({ message: "Cart is empty" });
+//     }
+
+//     // 1. Insert into orders table
+//     const [orderResult] = await db.query(
+//       `INSERT INTO orders 
+//         (userId, shopId, totalAmount, payment_type, is_paid, delivery_note) 
+//        VALUES (?, ?, ?, ?, ?, ?)`,
+//       [userId, shopId, totalAmount, payment_type, 0, delivery_note]
+//     );
+//     const orderId = orderResult.insertId;
+
+//     // 2. Insert items into order_items
+//     for (const item of cartItems) {
+//       const { menuId, quantity, addons, price, subtotal } = item;
+//       await db.query(
+//         `INSERT INTO order_items 
+//           (orderId, menuId, quantity, addons, price, subtotal) 
+//          VALUES (?, ?, ?, ?, ?, ?)`,
+//         [orderId, menuId, quantity, JSON.stringify(addons), price, subtotal]
+//       );
+//     }
+//     // Add this snippet inside placeOrder after items insertion
+// try {
+//   const [[shopOwnerRow]] = await db.query("SELECT owner_id FROM shops WHERE id = ?", [shopId]);
+//   const vendorIds = shopOwnerRow ? [shopOwnerRow.owner_id] : [];
+
+//   const title = "New Order Placed";
+//   const body = `Order #${orderId} has been placed.`;
+//   const data = { type: "order_placed", orderId, shopId, payment_type };
+
+//   if (vendorIds.length) {
+//     emitInApp(req.io, vendorIds, "order:placed", data);
+//     await sendPushToUsers(vendorIds, title, body, data);
+//   }
+// } catch (notifyErr) {
+//   console.warn("notify vendor error (non-fatal):", notifyErr);
+// }
+
+
+//     // 3. (Optional) Clear cart after placing order if you're storing carts in DB
+
+//     res.status(201).json({ message: "Order placed successfully", orderId });
+//   } catch (err) {
+//     console.error("Place order error:", err);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };.
+
 const placeOrder = async (req, res) => {
+  const { cartItems, shopId, totalAmount: totalAmountRaw, payment_type, delivery_note = "" } = req.body;
+  const userId = req.user.id;
+  const totalAmount = Number(totalAmountRaw) || 0;
+
+  if (!Array.isArray(cartItems) || cartItems.length === 0) {
+    return res.status(400).json({ message: "Cart is empty" });
+  }
+  if (!shopId) return res.status(400).json({ message: "Missing shopId" });
+
+  let conn;
   try {
-    const { cartItems, shopId, totalAmount, payment_type, delivery_note } =
-      req.body;
-    const userId = req.user.id;
+    conn = await db.getConnection();
+    await conn.beginTransaction();
 
-    if (!cartItems || cartItems.length === 0) {
-      return res.status(400).json({ message: "Cart is empty" });
-    }
-
-    // 1. Insert into orders table
-    const [orderResult] = await db.query(
-      `INSERT INTO orders 
-        (userId, shopId, totalAmount, payment_type, is_paid, delivery_note) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [userId, shopId, totalAmount, payment_type, 0, delivery_note]
+    // 1) Insert order
+    const [orderResult] = await conn.query(
+      `INSERT INTO orders (userId, shopId, totalAmount, payment_type, is_paid, delivery_note)
+       VALUES (?, ?, ?, ?, 0, ?)`,
+      [userId, shopId, totalAmount, payment_type, delivery_note]
     );
     const orderId = orderResult.insertId;
 
-    // 2. Insert items into order_items
+    // 2) Insert order_items
     for (const item of cartItems) {
-      const { menuId, quantity, addons, price, subtotal } = item;
-      await db.query(
-        `INSERT INTO order_items 
-          (orderId, menuId, quantity, addons, price, subtotal) 
+      const menuId = item.menuId;
+      const quantity = Number(item.quantity) || 0;
+      if (!menuId || quantity <= 0) {
+        await conn.rollback();
+        return res.status(400).json({ message: "Invalid cart item", item });
+      }
+
+      let price = typeof item.price !== "undefined" && item.price !== null ? Number(item.price) : null;
+      if (price === null) {
+        const [menuRows] = await conn.query("SELECT price FROM menus WHERE menuId = ? LIMIT 1", [menuId]);
+        if (!menuRows.length) {
+          await conn.rollback();
+          return res.status(400).json({ message: `Menu not found: ${menuId}` });
+        }
+        price = Number(menuRows[0].price) || 0;
+      }
+
+      const subtotal = Number((price * quantity).toFixed(2));
+
+      await conn.query(
+        `INSERT INTO order_items (orderId, menuId, quantity, addons, price, subtotal)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [orderId, menuId, quantity, JSON.stringify(addons), price, subtotal]
+        [orderId, menuId, quantity, JSON.stringify(item.addons || []), price.toFixed(2), subtotal]
       );
     }
 
-    // 3. (Optional) Clear cart after placing order if you're storing carts in DB
+    // 3) clear cart
+    await conn.query("DELETE FROM cart_items WHERE userId = ? AND shopId = ? AND status = 'active'", [userId, shopId]);
 
+    // ✅ commit
+    await conn.commit();
+
+    // ✅ respond
     res.status(201).json({ message: "Order placed successfully", orderId });
+
+    // 4) fire-and-forget notifications
+    (async () => {
+      try {
+        // get shop owner
+        const [[shopRow]] = await db.query("SELECT owner_id FROM shops WHERE id = ?", [shopId]);
+        const vendorIds = shopRow && shopRow.owner_id ? [shopRow.owner_id] : [];
+
+        if (vendorIds.length) {
+          const title = "New Order Placed";
+          const body = `Order #${orderId} has been placed.`;
+          const payload = { type: "order_placed", orderId, shopId };
+
+          // save notification in DB
+          await db.query(
+            `INSERT INTO notifications (user_id, type, title, body, payload, created_at) VALUES (?, ?, ?, ?, ?, NOW())`,
+            [vendorIds[0], "order_placed", title, body, JSON.stringify(payload)]
+          );
+
+          // socket.io emit
+          if (req.io) {
+            try { emitInApp(req.io, vendorIds, "order:placed", payload); }
+            catch (e) { console.warn("emitInApp failed:", e); }
+          }
+
+          // push
+          try {
+            await sendPushToUsers(vendorIds, title, body, payload);
+          } catch (pushErr) {
+            console.warn("sendPushToUsers failed:", pushErr);
+          }
+        }
+      } catch (e) {
+        console.warn("Async notify error (non-fatal):", e);
+      }
+    })();
+
+    return;
   } catch (err) {
     console.error("Place order error:", err);
-    res.status(500).json({ message: "Server error" });
+    try { if (conn) await conn.rollback(); } catch (rb) { console.error("rollback failed:", rb); }
+    if (!res.headersSent) return res.status(500).json({ message: "Server error" });
+    return;
+  } finally {
+    if (conn) try { await conn.release(); } catch (_) {}
   }
 };
-
 // ✅ 2. Get Orders for a User
 const getMyOrders = async (req, res) => {
   try {
@@ -333,40 +457,123 @@ const cancelOrder = async (req, res) => {
 
 
 // ✅ 6. Update order status (vendor)
+// const updateOrderStatus = async (req, res) => {
+//   try {
+//     const { orderId } = req.params;
+//     const { status } = req.body;
+//     const role = req.user.role;
+
+//     let query = "SELECT * FROM orders WHERE orderId = ?";
+//     let params = [orderId];
+
+//     // If shop owner, restrict to their own shop
+//     if (role === "shop_owner") {
+//       const shopId = req.user.shopId;
+//       if (!shopId) {
+//         return res
+//           .status(403)
+//           .json({ message: "No shop associated with your account" });
+//       }
+//       query += " AND shopId = ?";
+//       params.push(shopId);
+//     }
+
+//     const [order] = await db.query(query, params);
+// // console.log("Query params:", params);
+// // console.log("Order fetched:", order);
+//     if (order.length === 0) {
+//       return res
+//         .status(404)
+//         .json({ message: "Order not found or unauthorized" });
+//     }
+
+//     await db.query("UPDATE orders SET status = ? WHERE orderId = ?", [
+//       status,
+//       orderId,
+//     ]);
+//     res.status(200).json({ message: "Order status updated successfully" });
+//   } catch (err) {
+//     console.error("Update status error:", err);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
 const updateOrderStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
     const { status } = req.body;
     const role = req.user.role;
+    const actorId = req.user.id;
 
+    if (!orderId || !status) return res.status(400).json({ message: "orderId and status required" });
+
+    // Build query and params - restrict to shop owner if role=shop_owner
     let query = "SELECT * FROM orders WHERE orderId = ?";
-    let params = [orderId];
-
-    // If shop owner, restrict to their own shop
+    const params = [orderId];
     if (role === "shop_owner") {
       const shopId = req.user.shopId;
-      if (!shopId) {
-        return res
-          .status(403)
-          .json({ message: "No shop associated with your account" });
-      }
+      if (!shopId) return res.status(403).json({ message: "No shop associated with your account" });
       query += " AND shopId = ?";
       params.push(shopId);
     }
 
-    const [order] = await db.query(query, params);
+    const [orderRows] = await db.query(query, params);
+    if (!orderRows.length) return res.status(404).json({ message: "Order not found or unauthorized" });
 
-    if (order.length === 0) {
-      return res
-        .status(404)
-        .json({ message: "Order not found or unauthorized" });
-    }
+    // Update the status
+    await db.query("UPDATE orders SET status = ? WHERE orderId = ?", [status, orderId]);
 
-    await db.query("UPDATE orders SET status = ? WHERE orderId = ?", [
-      status,
-      orderId,
-    ]);
+    // Respond quickly
     res.status(200).json({ message: "Order status updated successfully" });
+
+    // Async notify (do not block response)
+    (async () => {
+      try {
+        const order = orderRows[0];
+        // payload for sockets / push / DB
+        const payload = {
+          type: "order_status",
+          orderId: Number(orderId),
+          shopId: order.shopId,
+          userId: order.userId,
+          status,
+          short: `Order #${orderId} is ${status}`,
+          full: `Order #${orderId} is now ${status}`
+        };
+
+        // Notify the customer (order owner)
+        await notifyUsers({
+          io: req.io,
+          userIds: [order.userId],
+          event: "order:statusUpdated",
+          type: "order_status",
+          title: `Order #${orderId} ${status}`,
+          body: payload.full,
+          payload
+        });
+
+        // Optionally notify the shop owner (actor) with a record (so their notification list logs the change)
+        // Find shop owner id
+        try {
+          const [[shopRow]] = await db.query("SELECT owner_id FROM shops WHERE id = ? LIMIT 1", [order.shopId]);
+          const shopOwnerId = shopRow && shopRow.owner_id ? shopRow.owner_id : null;
+          if (shopOwnerId) {
+            await notifyUsers({
+              io: req.io,
+              userIds: [shopOwnerId],
+              event: "order:statusUpdated",
+              type: "order_status",
+              title: `You updated Order #${orderId}`,
+              body: `Order #${orderId} status set to ${status}`,
+              payload: { ...payload, actorId }
+            });
+          }
+        } catch (innerErr) {
+          console.warn("Failed to notify shop owner", innerErr);
+        }
+      } catch (err) {
+        console.warn("Async notify error:", err);
+      }
+    })();
   } catch (err) {
     console.error("Update status error:", err);
     res.status(500).json({ message: "Server error" });

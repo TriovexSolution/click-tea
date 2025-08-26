@@ -18,7 +18,7 @@ import axios from "axios";
 import { BASE_URL } from "@/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 interface FormData {
-  email: string;
+  login_input: string;
   // phone:string;
   password: string;
 }
@@ -29,7 +29,7 @@ const SignInScreen = () => {
     formState: { errors },
   } = useForm<FormData>({
     defaultValues: {
-      email: "",
+      login_input: "",
       password: "",
       // phone:""
     },
@@ -38,81 +38,87 @@ const SignInScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
 
 
-// const onSubmit = async (data: FormData) => {
-//   try {
-//     const response = await axios.post(`${BASE_URL}/api/auth/signin`, data, {
-//       headers: { "Content-Type": "application/json" },
-//     });
-
-//     const { token, owner_id } = response.data;
-
-//     await AsyncStorage.setItem("authToken", token);
-//    if (owner_id) {
-//   await AsyncStorage.setItem("owner_id", owner_id.toString());
-// }
-
-//     navigation.navigate("onBoardScreen");
-//   } catch (error: any) {
-//     const errMessage = error?.response?.data?.message;
-
-//     if (errMessage === "User not found") {
-//       Alert.alert("Account Not Found", "You don't have an account. Please sign up first.", [
-//         { text: "Sign Up", onPress: () => navigation.navigate("signUpScreen") },
-//         { text: "Cancel", style: "cancel" },
-//       ]);
-//     } else if (errMessage === "Invalid credentials") {
-//       Alert.alert("Login Failed", "Incorrect email or password.");
-//     } else {
-//       Alert.alert("Error", "Something went wrong. Please try again.");
-//     }
-
-//     console.log("Sign In failed", errMessage || error);
-//   }
-// };
+// put this inside your component to replace the existing onSubmit
 const onSubmit = async (data: FormData) => {
+  console.log("Submitting sign in:", data);
+
+  // show a basic loading UX if you want (optional)
+  // setLoading(true);
+
   try {
-    const response = await axios.post(`${BASE_URL}/api/auth/signin`, data, {
-      headers: { "Content-Type": "application/json" },
-    });
+    // you can set a timeout to fail faster on network problems
+    const response = await axios.post(
+      `${BASE_URL}/api/auth/signin`,
+      data,
+      {
+        headers: { "Content-Type": "application/json" },
+        timeout: 15000, // 15s
+      }
+    );
 
-    // const { token, user } = response.data;
+    // console.groupCollapsed("SignIn success");
+    // console.log("status:", response.status);
+    // console.log("data:", response.data);
+    // console.groupEnd();
+if(response.status === 200){
+  const { token, user } = response.data ?? {};
+    if (!token) {
+      Alert.alert("Login failed", "Server did not return an auth token. Contact support.");
+      // setLoading(false);
+      return;
+    }
+    await AsyncStorage.setItem("authToken", token);
+    if (user?.id) await AsyncStorage.setItem("owner_id", String(user.id));
+    if (user?.shopId) await AsyncStorage.setItem("shop_id", String(user.shopId));
 
-    // // Save token
-    // await AsyncStorage.setItem("authToken", token);
-
-    // // If shop_owner, save shopId (optional)
-    // if (user.role === "shop_owner" && user.shopId) {
-    //   await AsyncStorage.setItem("shopId", user.shopId.toString());
-    // }
-
-const { token, user } = response.data;
-await AsyncStorage.setItem("authToken", token);
-console.log("User object:", user);
-console.log("shopId from server:", user?.shopId);
-
-if (user?.id) {
-  await AsyncStorage.setItem("owner_id", user.id.toString());
+    // navigate after success
+    navigation.navigate("onBoardScreen");
 }
-if (user?.shopId) {
-  await AsyncStorage.setItem("shop_id", user.shopId.toString());
-}
 
-navigation.navigate("onBoardScreen");
-  } catch (error: any) {
-    const errMessage = error?.response?.data?.message;
+  
 
-    if (errMessage === "User not found") {
-      Alert.alert("Account Not Found", "You don't have an account. Please sign up first.", [
-        { text: "Sign Up", onPress: () => navigation.navigate("signUpScreen") },
-        { text: "Cancel", style: "cancel" },
-      ]);
-    } else if (errMessage === "Invalid credentials") {
-      Alert.alert("Login Failed", "Incorrect email or password.");
+
+  } catch (err: any) {
+    // setLoading(false);
+    console.groupCollapsed("SignIn error");
+    // axios error (server responded or request made but no response)
+    if (axios.isAxiosError(err)) {
+      console.log("axios error message:", err.message);
+      console.log("config:", err.config);
+
+      if (err.response) {
+        // server responded with a status code out of 2xx
+        console.log("response.status:", err.response.status);
+        console.log("response.data:", err.response.data);
+        const serverMsg = err.response.data?.message ?? err.response.data?.error ?? JSON.stringify(err.response.data);
+
+        // handle common server messages
+        if (serverMsg === "User not found") {
+          Alert.alert("Account Not Found", "You don't have an account. Please sign up first.", [
+            { text: "Sign Up", onPress: () => navigation.navigate("signUpScreen") },
+            { text: "Cancel", style: "cancel" },
+          ]);
+        } else if (serverMsg === "Invalid credentials") {
+          Alert.alert("Login Failed", "Incorrect email or password.");
+        } else {
+          // generic server error
+          Alert.alert("Error", serverMsg || "Server error. Please try again.");
+        }
+      } else if (err.request) {
+        // request made but no response (network issue)
+        console.log("no response, request:", err.request);
+        Alert.alert("Network error", "Unable to reach server. Check your connection and BASE_URL.");
+      } else {
+        // something happened setting up the request
+        console.log("request setup error:", err.message);
+        Alert.alert("Error", err.message || "An unexpected error occurred.");
+      }
     } else {
+      // non-axios error (rare)
+      console.log("non-axios error:", err);
       Alert.alert("Error", "Something went wrong. Please try again.");
     }
-
-    console.log("Sign In failed", errMessage || error);
+    console.groupEnd();
   }
 };
 

@@ -65,3 +65,11 @@ export interface menuType {
   updated_at:string;
   menuId:number;
 }
+
+
+export interface userProfileDataType{
+  userEmail:string;
+  userImage:null;
+  userPhone:string;
+  username:string;
+}

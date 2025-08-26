@@ -557,7 +557,9 @@ if (id && shopId) {
     const cartQty = cartMap[item.menuId]?.quantity || 0;
 
     return (
-      <View style={styles.menuRow}>
+      <Pressable style={styles.menuRow} onPress={()=>navigation.navigate("menuDetailScreen",{
+        menuId: item.menuId
+      })}>
         {item.imageUrl && (
           <Image
             source={{ uri: `${BASE_URL}/uploads/menus/${item.imageUrl}` }}
@@ -589,7 +591,7 @@ if (id && shopId) {
             </Pressable>
           </View>
         )}
-      </View>
+      </Pressable>
     );
   };
 

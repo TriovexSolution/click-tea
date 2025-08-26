@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useContext, useState } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Image,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useForm, Controller } from "react-hook-form";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,13 +18,14 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import axios from "axios";
 import { BASE_URL } from "@/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { AuthContext } from "@/src/context/authContext";
 
 interface FormData {
   login_input: string;
   password: string;
 }
 
-const SignInScreen = () => {
+const SignInScreen: React.FC = () => {
   const {
     control,
     handleSubmit,
@@ -37,37 +39,30 @@ const SignInScreen = () => {
 
   const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>();
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const { signIn } = useContext(AuthContext);
 
   const onSubmit = async (data: FormData) => {
+    setLoading(true);
     try {
       const response = await axios.post(`${BASE_URL}/api/auth/signin`, data, {
         headers: { "Content-Type": "application/json" },
       });
-// const { token } = response.data;
-// if (token) {
-//   await AsyncStorage.setItem("authToken", token);
-// if(response.status === 200){
-    
-//     const { token } = response.data;
 
-// if(token){
-//   await AsyncStorage.setItem("authToken", token);
-// }
-//     navigation.navigate("onBoardScreen");
-// } else {
-//   throw new Error("No token received");
-// }
-if (response.status === 200) {
-  const { token } = response.data;
-await AsyncStorage.setItem("authToken", token);
-setTimeout(() => {
-  navigation.replace("bottomTabScreen");
-}, 200); //
-}
+      if (response.status === 200 && response.data?.token) {
+        const token = response.data.token;
+        const userId = response.data.userId ?? response.data?.id; // adapt to your backend shape
 
+        // Persist + register push token handled inside signIn
+        await signIn(token, userId);
+        // No navigation call required — StackNavigatorScreens will re-render to authenticated stack
+      } else {
+        Alert.alert("Login Error", "No token received from server.");
+        console.log("Unexpected sign-in response:", response.data);
+      }
     } catch (error: any) {
       const errMessage = error?.response?.data?.message;
-
       if (errMessage === "User not found") {
         Alert.alert("Account Not Found", "You don't have an account. Please sign up first.", [
           { text: "Sign Up", onPress: () => navigation.navigate("signUpScreen") },
@@ -78,8 +73,9 @@ setTimeout(() => {
       } else {
         Alert.alert("Error", "Something went wrong. Please try again.");
       }
-
       console.log("Sign In failed", errMessage || error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -101,21 +97,23 @@ setTimeout(() => {
           <TextInput
             style={styles.input}
             placeholder="Email or Phone"
-            keyboardType="default"
+            keyboardType="email-address"
+            autoCapitalize="none"
             value={value}
             onChangeText={onChange}
           />
         )}
       />
-      {errors.login_input && (
-        <Text style={styles.error}>{errors.login_input.message}</Text>
-      )}
+      {errors.login_input && <Text style={styles.error}>{errors.login_input.message}</Text>}
 
       <View style={styles.passwordContainer}>
         <Controller
           control={control}
           name="password"
-          rules={{ required: "Password is required", minLength: 6 }}
+          rules={{
+            required: "Password is required",
+            minLength: { value: 6, message: "Password must be at least 6 characters" },
+          }}
           render={({ field: { onChange, value } }) => (
             <TextInput
               style={styles.passwordInput}
@@ -123,6 +121,7 @@ setTimeout(() => {
               secureTextEntry={!showPassword}
               value={value}
               onChangeText={onChange}
+              autoCapitalize="none"
             />
           )}
         />
@@ -130,12 +129,18 @@ setTimeout(() => {
           <Ionicons name={showPassword ? "eye-off" : "eye"} size={22} color="#999" />
         </TouchableOpacity>
       </View>
-      {errors.password && (
-        <Text style={styles.error}>{errors.password.message}</Text>
-      )}
+      {errors.password && <Text style={styles.error}>{errors.password.message}</Text>}
 
-      <TouchableOpacity style={styles.signInBtn} onPress={handleSubmit(onSubmit)}>
-        <Text style={styles.signInText}>Sign In</Text>
+      <TouchableOpacity
+        style={[styles.signInBtn, loading && { opacity: 0.8 }]}
+        onPress={handleSubmit(onSubmit)}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text style={styles.signInText}>Sign In</Text>
+        )}
       </TouchableOpacity>
 
       <View style={styles.orContainer}>
@@ -154,10 +159,7 @@ setTimeout(() => {
 
       <Text style={styles.footerText}>
         Don’t have an account?{" "}
-        <Text
-          style={styles.signUpLink}
-          onPress={() => navigation.navigate("signUpScreen")}
-        >
+        <Text style={styles.signUpLink} onPress={() => navigation.navigate("signUpScreen")}>
           Sign Up
         </Text>
       </Text>

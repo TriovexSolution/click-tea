@@ -1,4 +1,8 @@
 const db = require("../config/db");
+const toInt = (v, fallback = 1) => {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : fallback;
+};
 
 // ✅ Create Category (admin or shop_owner)
 // const createCategory = async (req, res) => {
@@ -201,6 +205,90 @@ const getPublicCategoriesByShop = async (req, res) => {
 };
 const getCategoriesWithMenus = async (req, res) => {
   try {
+    const page = toInt(req.query.page, 1);
+    const limit = toInt(req.query.limit, 10);
+    const search = (req.query.search || "").trim();
+    const offset = (page - 1) * limit;
+
+    const searchFilter = search ? `AND c.categoryName LIKE ?` : "";
+
+    const sql = `
+      SELECT 
+        c.categoryId, 
+        c.categoryName, 
+        c.categoryImage,
+        c.shop_id,
+        c.is_global,
+        m.menuId,
+        m.menuName,
+        m.price,
+        m.imageUrl,
+        m.ingredients,
+        m.isAvailable,
+        m.rating
+      FROM categories c
+      LEFT JOIN menus m 
+        ON c.categoryId = m.categoryId 
+        AND m.status = 'active' 
+        AND m.isAvailable = 1
+      WHERE c.status = 'active'
+        ${searchFilter}
+      ORDER BY c.created_at DESC, m.menuName ASC
+      LIMIT ? OFFSET ?
+    `;
+
+    const params = search ? [`%${search}%`, limit, offset] : [limit, offset];
+    const [rows] = await db.query(sql, params);
+
+    // group menus under categories
+    const categoriesMap = {};
+    rows.forEach(row => {
+      if (!categoriesMap[row.categoryId]) {
+        categoriesMap[row.categoryId] = {
+          categoryId: row.categoryId,
+          categoryName: row.categoryName,
+          categoryImage: row.categoryImage,
+          shop_id: row.shop_id,
+          is_global: row.is_global,
+          menus: [],
+        };
+      }
+      if (row.menuId) {
+        categoriesMap[row.categoryId].menus.push({
+          menuId: row.menuId,
+          menuName: row.menuName,
+          price: row.price,
+          imageUrl: row.imageUrl,
+          ingredients: row.ingredients,
+          isAvailable: row.isAvailable,
+          rating: row.rating,
+        });
+      }
+    });
+
+    const categoriesWithMenus = Object.values(categoriesMap);
+
+    // optional total count (only reliable for first page)
+    let totalCount = 0;
+    if (page === 1) {
+      const countSql = `SELECT COUNT(*) AS count FROM categories c WHERE c.status = 'active' ${searchFilter}`;
+      const [countResult] = await db.query(countSql, search ? [`%${search}%`] : []);
+      totalCount = countResult[0]?.count ?? 0;
+    }
+
+    res.status(200).json({
+      page,
+      limit,
+      totalCount,
+      data: categoriesWithMenus,
+    });
+  } catch (error) {
+    console.error("Error fetching categories with menus:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+const getMenusByCategory  = async (req, res) => {
+  try {
     // Extract query params for pagination and search
     const { page = 1, limit = 10, search = "" } = req.query;
     const offset = (page - 1) * limit;
@@ -298,5 +386,6 @@ module.exports = {
   updateCategory,
   deleteCategory,
   getPublicCategoriesByShop,
-  getCategoriesWithMenus
+  getCategoriesWithMenus,
+  getMenusByCategory
 };

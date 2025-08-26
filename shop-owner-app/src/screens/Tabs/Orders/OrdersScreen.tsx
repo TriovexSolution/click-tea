@@ -13,22 +13,24 @@ import {
   LayoutAnimation,
   UIManager,
   Platform,
+  RefreshControl,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { BASE_URL } from "@/api";
 import { hp } from "@/src/assets/utils/responsive";
 import theme from "@/src/assets/colors/theme";
+import { useSelector } from "react-redux";
 
 
-
-const STATUS_OPTIONS = ["pending", "preparing", "ready", "delivered", "cancelled"];
+const STATUS_OPTIONS = ["pending", "preparing", "ready", "delivered", "cancelled","ongoing"];
 
 const OrderCard = ({ item, onUpdateStatus }:any) => {
   const [selectedStatus, setSelectedStatus] = useState(item.status);
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [detailsVisible, setDetailsVisible] = useState(false);
-
+  const userId = useSelector((s: any) => s.auth.user?.id);
+  
   const toggleDetails = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setDetailsVisible(!detailsVisible);
@@ -103,7 +105,7 @@ const OrderCard = ({ item, onUpdateStatus }:any) => {
 
       <TouchableOpacity
         style={styles.statusBtn}
-        onPress={() => onUpdateStatus(item.orderId, selectedStatus)}
+         onPress={() => onUpdateStatus({ orderId: item.orderId, newStatus: selectedStatus })}
       >
         <Text style={styles.statusBtnText}>🔁 Change Status</Text>
       </TouchableOpacity>
@@ -117,6 +119,8 @@ const OrdersScreen = () => {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
   const LIMIT = 10;
 
   useEffect(() => {
@@ -139,6 +143,7 @@ const OrdersScreen = () => {
       const { data } = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
+// console.log(data);
 
       reset ? setOrders(data) : setOrders((prev) => [...prev, ...data]);
       setHasMore(data.length === LIMIT);
@@ -148,7 +153,7 @@ const OrdersScreen = () => {
       Alert.alert("Error", "Could not load orders");
     } finally {
       if (reset) setLoading(false);
-    }
+    } 
   };
 
   const updateStatus = async ({orderId, newStatus}:any) => {
@@ -166,6 +171,11 @@ const OrdersScreen = () => {
       Alert.alert("Error", "Failed to update status");
     }
   };
+const onRefresh = async () => {
+  setRefreshing(true);
+await fetchOrders(1, selectedStatusFilter, true);
+  setRefreshing(false);
+};
 
   const renderFooter = () => {
     if (!hasMore) return null;
@@ -225,6 +235,14 @@ const OrdersScreen = () => {
           )}
           ListFooterComponent={renderFooter}
           contentContainerStyle={{ paddingBottom: 100 }}
+          refreshControl={
+                <RefreshControl
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      colors={[theme.PRIMARY_COLOR]} // Android
+      tintColor={theme.PRIMARY_COLOR} // iOS
+    />
+          }
         />
       )}
     </View>
