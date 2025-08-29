@@ -180,7 +180,7 @@
 //     paddingVertical: hp(0.5),
 //   },
 // });
-import React, { useState, useRef } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -188,9 +188,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  FlatList,
   Image,
   Modal,
+  ScrollView,
   ActivityIndicator,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -200,6 +200,7 @@ import axios from "axios";
 import { BASE_URL } from "@/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
+import { Ionicons } from "@expo/vector-icons";
 import CommonHeader2 from "@/src/Common/CommonHeader2";
 
 const AddCategoryScreen = () => {
@@ -209,8 +210,8 @@ const AddCategoryScreen = () => {
   const [loading, setLoading] = useState(false);
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const navigation = useNavigation();
-  const flatListRef = useRef(null);
 
+  // 📷 Pick Image
   const handlePickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -223,6 +224,7 @@ const AddCategoryScreen = () => {
     }
   };
 
+  // ➕ Add Category
   const handleAddCategory = async () => {
     if (!categoryName.trim()) {
       Alert.alert("Validation", "Category name cannot be empty.");
@@ -243,7 +245,7 @@ const AddCategoryScreen = () => {
         } as any);
       }
 
-      const res = await axios.post(`${BASE_URL}/api/category/create`, formData, {
+      await axios.post(`${BASE_URL}/api/category/create`, formData, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "multipart/form-data",
@@ -258,9 +260,6 @@ const AddCategoryScreen = () => {
       setCategories(prev => [...prev, newCategory]);
       setCategoryName("");
       setImage(null);
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 300);
     } catch (err) {
       console.log("❌ Add category failed", err.response?.data || err.message);
       Alert.alert("Error", err.response?.data?.message || "Failed to add category");
@@ -269,6 +268,7 @@ const AddCategoryScreen = () => {
     }
   };
 
+  // ❌ Delete Category
   const handleDeleteCategory = (index: number) => {
     Alert.alert("Confirm", "Delete this category?", [
       { text: "Cancel", style: "cancel" },
@@ -290,6 +290,7 @@ const AddCategoryScreen = () => {
     <View style={styles.container}>
       <CommonHeader2 title="Add Categories" />
 
+      {/* Input */}
       <TextInput
         placeholder="Enter Category Name"
         value={categoryName}
@@ -297,16 +298,21 @@ const AddCategoryScreen = () => {
         style={styles.input}
       />
 
+      {/* Image Picker */}
       <TouchableOpacity onPress={handlePickImage} style={styles.imageBox}>
         {image ? (
           <TouchableOpacity onPress={() => setImageModalVisible(true)}>
             <Image source={{ uri: image.uri }} style={styles.imagePreview} />
           </TouchableOpacity>
         ) : (
-          <Text>📷 Pick Category Image</Text>
+          <View style={{ alignItems: "center" }}>
+            <Ionicons name="cloud-upload-outline" size={28} color="#777" />
+            <Text style={{ color: "#777", marginTop: 4 }}>Pick Category Image</Text>
+          </View>
         )}
       </TouchableOpacity>
 
+      {/* Add Button */}
       <TouchableOpacity onPress={handleAddCategory} style={styles.addBtn} disabled={loading}>
         {loading ? (
           <ActivityIndicator color="#fff" />
@@ -315,12 +321,13 @@ const AddCategoryScreen = () => {
         )}
       </TouchableOpacity>
 
-      <FlatList
-        ref={flatListRef}
-        data={categories}
-        keyExtractor={(_, index) => index.toString()}
-        renderItem={({ item, index }) => (
-          <View style={styles.categoryItem}>
+      {/* Category List */}
+      <ScrollView
+        contentContainerStyle={styles.categoryList}
+        showsVerticalScrollIndicator={false}
+      >
+        {categories.map((item, index) => (
+          <View key={index} style={styles.categoryItem}>
             {item.image ? (
               <Image source={{ uri: item.image }} style={styles.categoryImage} />
             ) : (
@@ -330,17 +337,18 @@ const AddCategoryScreen = () => {
             )}
             <Text style={styles.categoryText}>{item.name}</Text>
             <TouchableOpacity onPress={() => handleDeleteCategory(index)}>
-              <Text style={styles.deleteText}>✖</Text>
+              <Ionicons name="trash-outline" size={20} color="red" />
             </TouchableOpacity>
           </View>
-        )}
-      />
+        ))}
+      </ScrollView>
 
+      {/* Next Button */}
       <TouchableOpacity onPress={goNext} style={styles.nextBtn}>
         <Text style={styles.btnText}>Next → Add Menu</Text>
       </TouchableOpacity>
 
-      {/* Simple Modal Preview without zoom */}
+      {/* Full Image Preview */}
       <Modal visible={imageModalVisible} transparent animationType="fade">
         <View style={styles.modalContainer}>
           <TouchableOpacity
@@ -367,16 +375,15 @@ export default AddCategoryScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: "#fafafa",
   },
   input: {
     borderWidth: 1,
     borderColor: "#E0E0E0",
     backgroundColor: "#fff",
-    padding: hp(1.2),
+    padding: hp(1.5),
     borderRadius: theme.PRIMARY_BORDER_RADIUS,
-    marginBottom: hp(1.5),
-    marginHorizontal: wp(4),
+    margin: wp(4),
     fontSize: hp(1.9),
     elevation: 1,
   },
@@ -385,12 +392,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#D1D1D1",
     backgroundColor: "#fff",
-    padding: hp(1.5),
+    padding: hp(3),
     marginHorizontal: wp(4),
     marginBottom: hp(2),
     alignItems: "center",
     justifyContent: "center",
-    elevation: 2,
+    elevation: 3,
   },
   imagePreview: {
     width: wp(80),
@@ -401,17 +408,15 @@ const styles = StyleSheet.create({
     backgroundColor: theme.PRIMARY_COLOR,
     padding: hp(1.5),
     borderRadius: theme.PRIMARY_BORDER_RADIUS,
-    marginBottom: hp(1.5),
     marginHorizontal: wp(4),
-    elevation: 2,
+    elevation: 3,
   },
   nextBtn: {
     backgroundColor: theme.SECONDARY_COLOR,
     padding: hp(1.5),
     borderRadius: theme.PRIMARY_BORDER_RADIUS,
-    marginTop: hp(2),
-    marginHorizontal: wp(4),
-    elevation: 2,
+    margin: wp(4),
+    elevation: 3,
   },
   btnText: {
     textAlign: "center",
@@ -419,11 +424,14 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: hp(2),
   },
+  categoryList: {
+    paddingBottom: hp(2),
+  },
   categoryItem: {
     backgroundColor: "#fff",
     marginHorizontal: wp(4),
     marginVertical: hp(1),
-    padding: hp(1),
+    padding: hp(1.5),
     borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -448,11 +456,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#eee",
     justifyContent: "center",
     alignItems: "center",
-  },
-  deleteText: {
-    fontSize: hp(2),
-    color: "red",
-    paddingHorizontal: wp(2),
   },
   modalContainer: {
     flex: 1,

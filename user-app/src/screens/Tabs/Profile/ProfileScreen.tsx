@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -8,11 +8,12 @@ import {
   ActivityIndicator,
   FlatList,
   Alert,
+  ListRenderItem,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { hp, wp } from "@/src/assets/utils/responsive";
 import theme from "@/src/assets/colors/theme";
-import { ParamListBase, useNavigation } from "@react-navigation/native";
+import { ParamListBase, useFocusEffect, useNavigation } from "@react-navigation/native";
 import axios from "axios";
 import { BASE_URL } from "@/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -20,10 +21,16 @@ import CommonHeader from "@/src/Common/CommonHeader";
 import { userProfileDataType } from "@/src/assets/types/userDataType";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
-
 /* ---------------- MENU CONFIG ---------------- */
-const MENU_ITEMS = [
+type MenuItemType = {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  route: string;
+};
+
+const MENU_ITEMS: MenuItemType[] = [
   { icon: "location-outline", label: "Address Book", route: "AddressBook" },
+  { icon: "lock-closed-outline", label: "Change Password", route: "ChangePassword" },
   { icon: "time-outline", label: "Order History", route: "orderScreen" },
   { icon: "wallet-outline", label: "Coin Wallet", route: "Wallet" },
   { icon: "gift-outline", label: "Offer & Coupons", route: "Coupons" },
@@ -32,7 +39,7 @@ const MENU_ITEMS = [
 
 /* ---------------- MENU ITEM COMPONENT ---------------- */
 const MenuItem = React.memo(
-  ({ icon, label, onPress }: { icon: any; label: string; onPress: () => void }) => (
+  ({ icon, label, onPress }: { icon: MenuItemType["icon"]; label: string; onPress: () => void }) => (
     <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={0.6}>
       <View style={styles.row}>
         <Ionicons name={icon} size={22} color={theme.PRIMARY_COLOR} style={{ marginRight: wp(3) }} />
@@ -48,29 +55,40 @@ const ProfileScreen = () => {
   const [profile, setProfile] = useState<userProfileDataType | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let mounted = true;
-    const fetchProfile = async () => {
-      try {
-        const token = await AsyncStorage.getItem("authToken");
-        if (!token) return;
-        const res = await axios.get(`${BASE_URL}/api/profile`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (mounted) setProfile(res.data);
-      } catch (err) {
-        console.error("Profile fetch error:", err);
-      } finally {
-        if (mounted) setLoading(false);
+  /* ---------------- Fetch Profile ---------------- */
+  const fetchProfile = useCallback(async () => {
+    const controller = new AbortController();
+    try {
+      setLoading(true);
+      const token = await AsyncStorage.getItem("authToken");
+      if (!token) return;
+
+      const res = await axios.get(`${BASE_URL}/api/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      setProfile(res.data);
+    } catch (err: any) {
+      if (err?.name !== "CanceledError") {
+        console.error("Profile fetch error:", err?.response?.data ?? err);
       }
-    };
-    fetchProfile();
-    return () => {
-      mounted = false;
-    };
+    } finally {
+      setLoading(false);
+    }
+    return () => controller.abort();
   }, []);
 
-  const handleLogout = async () => {
+  useFocusEffect(
+    useCallback(() => {
+      const cleanup = fetchProfile();
+      return () => {
+        if (typeof cleanup === "function") cleanup();
+      };
+    }, [fetchProfile])
+  );
+
+  /* ---------------- Logout ---------------- */
+  const handleLogout = useCallback(() => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
       { text: "Cancel", style: "cancel" },
       {
@@ -82,14 +100,15 @@ const ProfileScreen = () => {
         },
       },
     ]);
-  };
+  }, [navigation]);
 
-  const renderItem = useCallback(
-    ({ item }:any) => (
+  /* ---------------- Render Item ---------------- */
+  const renderItem: ListRenderItem<MenuItemType> = useCallback(
+    ({ item }) => (
       <MenuItem
         icon={item.icon}
         label={item.label}
-        onPress={() => item.route && navigation.navigate(item.route as never)}
+        onPress={() => navigation.navigate(item.route as never)}
       />
     ),
     [navigation]
@@ -101,8 +120,6 @@ const ProfileScreen = () => {
     );
 
   return (
-    // console.log(profile),
-    
     <View style={styles.container}>
       <CommonHeader title="Profile" />
 
@@ -132,6 +149,15 @@ const ProfileScreen = () => {
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
         }
+        initialNumToRender={5}
+        removeClippedSubviews
+        maxToRenderPerBatch={6}
+        windowSize={7}
+        getItemLayout={(_, index) => ({
+          length: hp(7),
+          offset: hp(7) * index,
+          index,
+        })}
       />
     </View>
   );

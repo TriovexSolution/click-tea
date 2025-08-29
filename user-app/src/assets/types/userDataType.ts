@@ -49,6 +49,8 @@ quantity:number;
 shopAddress:string;
 shopname:string;
 ingredients:string;
+snapshotPrice:string;
+unitPrice:number
 }
 
 export interface menuType {

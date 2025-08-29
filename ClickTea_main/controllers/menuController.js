@@ -43,6 +43,49 @@ const db = require("../config/db");
 //     res.status(500).json({ message: "Server error" });
 //   }
 // };
+// const createMenu = async (req, res) => {
+//   try {
+//     const {
+//       categoryId,
+//       menuName,
+//       price,
+//       ingredients,
+//       isAvailable,
+//     } = req.body;
+
+//     const imageUrl = req.file?.filename || null;
+
+//     let shopId;
+
+//     if (req.user.role === "admin") {
+//       // Admin must pass shopId explicitly
+//       shopId = req.body.shopId;
+//       if (!shopId) {
+//         return res.status(400).json({ message: "shopId is required for admin" });
+//       }
+//     } else {
+//       // ✅ For shop_owner, fetch shopId from shops table using owner_id
+//       const [shop] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
+//       if (!shop.length) {
+//         return res.status(404).json({ message: "Shop not found for this owner" });
+//       }
+//       shopId = shop[0].id;
+//     }
+
+//     // ✅ Insert menu item
+//     await db.query(
+//       `INSERT INTO menus 
+//         (shopId, categoryId, menuName, price, imageUrl, ingredients, isAvailable) 
+//        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+//       [shopId, categoryId, menuName, price, imageUrl, ingredients, isAvailable ?? 1]
+//     );
+
+//     res.status(201).json({ message: "Menu created successfully" });
+//   } catch (err) {
+//     console.error("Create menu error:", err);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
 const createMenu = async (req, res) => {
   try {
     const {
@@ -51,42 +94,58 @@ const createMenu = async (req, res) => {
       price,
       ingredients,
       isAvailable,
+      variants // expect stringified JSON or array
     } = req.body;
 
     const imageUrl = req.file?.filename || null;
-
     let shopId;
 
     if (req.user.role === "admin") {
-      // Admin must pass shopId explicitly
       shopId = req.body.shopId;
-      if (!shopId) {
-        return res.status(400).json({ message: "shopId is required for admin" });
-      }
+      if (!shopId) return res.status(400).json({ message: "shopId is required for admin" });
     } else {
-      // ✅ For shop_owner, fetch shopId from shops table using owner_id
       const [shop] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
-      if (!shop.length) {
-        return res.status(404).json({ message: "Shop not found for this owner" });
-      }
+      if (!shop.length) return res.status(404).json({ message: "Shop not found for this owner" });
       shopId = shop[0].id;
     }
 
-    // ✅ Insert menu item
-    await db.query(
-      `INSERT INTO menus 
-        (shopId, categoryId, menuName, price, imageUrl, ingredients, isAvailable) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [shopId, categoryId, menuName, price, imageUrl, ingredients, isAvailable ?? 1]
+    // insert menu
+    const [menuResult] = await db.query(
+      `INSERT INTO menus (shopId, categoryId, menuName, price, imageUrl, ingredients, isAvailable, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [shopId, categoryId, menuName, price || 0, imageUrl, ingredients || null, isAvailable ?? 1]
     );
+    const menuId = menuResult.insertId;
 
-    res.status(201).json({ message: "Menu created successfully" });
+    // parse variants; if none provided, create a default variant using base price
+    let parsed = [];
+    if (variants) {
+      try {
+        parsed = typeof variants === "string" ? JSON.parse(variants) : variants;
+      } catch (e) {
+        parsed = [];
+      }
+    }
+    if (!parsed || parsed.length === 0) {
+      parsed = [{ label: "", price: Number(price || 0) }];
+    }
+
+    // insert variants
+    for (const v of parsed) {
+      const variantName = v.label || "";
+      const vprice = Number(v.price || 0);
+      await db.query(
+        `INSERT INTO menu_variants (menuId, variantName, price, created_at) VALUES (?, ?, ?, NOW())`,
+        [menuId, variantName, vprice]
+      );
+    }
+
+    return res.status(201).json({ message: "Menu created successfully", menuId });
   } catch (err) {
     console.error("Create menu error:", err);
-    res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 };
-
 // ✅ Get My Menus (for shop_owner)
 const getMyMenus = async (req, res) => {
   try {

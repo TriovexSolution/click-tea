@@ -107,6 +107,7 @@ import { BASE_URL } from "./api";
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import AppServices from "./src/services/AppServices";
+import RootApp from "./RootApp";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 1000 * 60 },
@@ -123,10 +124,11 @@ const App = () => {
               <AuthProvider>
                 <BottomSheetModalProvider>
                     <AppServices>
-                  <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
+                  {/* <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
                     <StatusBar hidden />
                     <StackNavigatorScreens />
-                  </SafeAreaView>
+                  </SafeAreaView> */}
+                  <RootApp/>
                   </AppServices>
                 </BottomSheetModalProvider>
               </AuthProvider>

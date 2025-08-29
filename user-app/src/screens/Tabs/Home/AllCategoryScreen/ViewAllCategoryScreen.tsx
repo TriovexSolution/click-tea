@@ -113,7 +113,7 @@ const CategoryCard = React.memo(
 );
 
 /** --- Screen --- **/
-const ViewAllCategoryScreen: React.FC<Props> = () => {
+const ViewAllCategoryScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>()
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [loading, setLoading] = useState(false);
@@ -167,9 +167,12 @@ const ViewAllCategoryScreen: React.FC<Props> = () => {
             timeout: 15000,
           }
         );
+// console.log(res.data);
 
         // Validate response shape
         const data = Array.isArray(res?.data?.data) ? res.data.data : [];
+        // console.log(data);
+        
         setCategories(data);
       } catch (err: any) {
         if (!axios.isCancel(err)) {

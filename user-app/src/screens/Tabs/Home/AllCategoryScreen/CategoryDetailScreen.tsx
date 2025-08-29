@@ -1,4 +1,8 @@
-// CategoryDetailScreen.tsx
+// CategoryDetailScreen.fixed.tsx
+// Patched version with improved extractMenus, stable keys, safer pagination handling,
+// better debug logs, and simplified MenuRow memoization to avoid stale rows when
+// switching categories.
+
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
@@ -25,16 +29,6 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-n
 import { ParamListBase, useNavigation } from "@react-navigation/native";
 import CommonHeader from "@/src/Common/CommonHeader";
 
-/**
- * CategoryDetailScreen
- *
- * Responsibilities:
- * - Fetch menus for selected category (handles multiple API shapes)
- * - Show search, pull-to-refresh, infinite scroll
- * - Render menu rows matching Figma design:
- *    [square image]  [title / subtitle / price]   [Popular badge / Add button]
- */
-
 // --------------------- Types ---------------------
 type MenuItem = {
   menuId?: number;
@@ -47,77 +41,77 @@ type MenuItem = {
 };
 
 type RootStackParamList = {
-  CategoryDetail: { categoryId: number; categoryName?: string };
+  CategoryDetail: { categoryId: number | string; categoryName?: string };
 };
 
 type Props = NativeStackScreenProps<RootStackParamList, "CategoryDetail">;
 
 // --------------------- MenuRow (presentational) ---------------------
-const MenuRow = React.memo(
-  ({ item, onAdd }: { item: MenuItem; onAdd: (m: MenuItem) => void }) => {
-    const [imgFailed, setImgFailed] = useState(false);
+// NOTE: removed fragile custom comparator so rows won't accidentally skip renders
+// when the list switches category or when backend returns equivalent menuIds across categories.
+const MenuRow = React.memo(({ item, onAdd }: { item: MenuItem; onAdd: (m: MenuItem) => void }) => {
+  const [imgFailed, setImgFailed] = useState(false);
 
-    const imgSource =
-      !imgFailed && item.imageUrl
-        ? { uri: `${BASE_URL}/uploads/menus/${item.imageUrl}` }
-        : require("@/src/assets/images/onBoard1.png"); // fallback local image
+  const imgSource =
+    !imgFailed && item.imageUrl
+      ? { uri: `${BASE_URL}/uploads/menus/${item.imageUrl}` }
+      : require("@/src/assets/images/onBoard1.png"); // fallback local image
 
-    return (
-      <View style={styles.menuRow} accessible accessibilityRole="button">
-        <View style={styles.menuLeft}>
-          <Image
-            source={imgSource}
-            style={styles.menuImage}
-            resizeMode="cover"
-            onError={() => setImgFailed(true)}
-            accessibilityLabel={item.menuName ?? "menu image"}
-          />
-        </View>
-
-        <View style={styles.menuCenter}>
-          <Text style={styles.menuTitle} numberOfLines={1}>
-            {item.menuName ?? "Unnamed Dish"}
-          </Text>
-
-          <Text style={styles.menuSubtitle} numberOfLines={2}>
-            {item.ingredients ?? "No description available"}
-          </Text>
-
-          <Text style={styles.menuPrice}>
-            {item.price !== undefined && item.price !== null ? `₹${item.price}` : "Price not available"}
-          </Text>
-        </View>
-
-        <View style={styles.menuRight}>
-          {item.rating && item.rating > 0 ? (
-            <View style={styles.popularBadge} accessible accessibilityLabel="Popular">
-              <Text style={styles.popularText}>Popular</Text>
-            </View>
-          ) : (
-            // keep space for visual balance
-            <View style={{ height: hp(2.2) }} />
-          )}
-
-          <TouchableOpacity
-            onPress={() => onAdd(item)}
-            style={styles.addButton}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel={`Add ${item.menuName ?? "item"}`}
-          >
-            <Text style={styles.addBtnText}>+ Add</Text>
-          </TouchableOpacity>
-        </View>
+  return (
+    <View style={styles.menuRow} accessible accessibilityRole="button">
+      <View style={styles.menuLeft}>
+        <Image
+          source={imgSource}
+          style={styles.menuImage}
+          resizeMode="cover"
+          onError={() => setImgFailed(true)}
+          accessibilityLabel={item.menuName ?? "menu image"}
+        />
       </View>
-    );
-  },
-  // Only re-render row if menuId changed (or reference changes)
-  (prev, next) => prev.item.menuId === next.item.menuId && prev.item?.rating === next.item?.rating
-);
+
+      <View style={styles.menuCenter}>
+        <Text style={styles.menuTitle} numberOfLines={1}>
+          {item.menuName ?? "Unnamed Dish"}
+        </Text>
+
+        <Text style={styles.menuSubtitle} numberOfLines={2}>
+          {item.ingredients ?? "No description available"}
+        </Text>
+
+        <Text style={styles.menuPrice}>
+          {item.price !== undefined && item.price !== null ? `₹${item.price}` : "Price not available"}
+        </Text>
+      </View>
+
+      <View style={styles.menuRight}>
+        {item.rating && item.rating > 0 ? (
+          <View style={styles.popularBadge} accessible accessibilityLabel="Popular">
+            <Text style={styles.popularText}>Popular</Text>
+          </View>
+        ) : (
+          <View style={{ height: hp(2.2) }} />
+        )}
+
+        <TouchableOpacity
+          onPress={() => onAdd(item)}
+          style={styles.addButton}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`Add ${item.menuName ?? "item"}`}>
+          <Text style={styles.addBtnText}>+ Add</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+});
 
 // --------------------- Screen ---------------------
-const CategoryDetailScreen: React.FC<Props> = ({ route }) => {
-  const { categoryId, categoryName } = route.params ?? {};
+const CategoryDetailScreen = ({ route }:any) => {
+  // Normalize categoryId to string internally to avoid strict === mismatches
+  const rawCategoryId = route?.params?.categoryId;
+  const categoryIdStr = rawCategoryId !== undefined && rawCategoryId !== null ? String(rawCategoryId) : "";
+  const categoryName = route?.params?.categoryName;
+
   const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>();
 
   const [menus, setMenus] = useState<MenuItem[]>([]);
@@ -142,39 +136,51 @@ const CategoryDetailScreen: React.FC<Props> = ({ route }) => {
 
   useEffect(() => {
     (async () => {
-      tokenRef.current = await AsyncStorage.getItem("authToken");
+      try {
+        tokenRef.current = await AsyncStorage.getItem("authToken");
+      } catch (e) {
+        console.warn("Failed to read token from AsyncStorage", e);
+        tokenRef.current = null;
+      }
     })();
     return () => {
       cancelRef.current?.cancel("unmount");
     };
   }, []);
 
-  // Helper: parse menus out of multiple API shapes:
-  // 1) res.data.data === [ {categoryId, menus:[...]}, ... ]
-  // 2) res.data.data === [ {menuId, menuName, ...}, ... ]  (direct menus array)
-  const extractMenus = (resData: any, categoryIdLocal?: number): MenuItem[] => {
-    if (!resData) return [];
-    const payload = resData.data ?? resData;
-    if (!Array.isArray(payload)) return [];
+// --- REPLACE extractMenus with this ---
+const extractMenus = (resData: any, categoryIdLocal?: string): MenuItem[] => {
+  if (!resData) return [];
+  const payload = resData.data ?? resData;
+  if (!Array.isArray(payload)) return [];
 
-    // Case A: payload is array of categories with .menus
-    const maybeCategory = payload.find((c: any) => c?.categoryId === categoryIdLocal);
-    if (maybeCategory && Array.isArray(maybeCategory.menus)) {
-      return maybeCategory.menus;
-    }
+  // If payload is an array of menu objects (direct menus), return it
+  const looksLikeMenus = payload.every((p: any) => p && (p.menuId !== undefined || p.menuName !== undefined));
+  if (looksLikeMenus) return payload as MenuItem[];
 
-    // Case B: payload is array of menu items directly (menu objects have menuId)
-    const looksLikeMenus = payload.every((p: any) => p?.menuId !== undefined || p?.menuName !== undefined);
-    if (looksLikeMenus) {
-      return payload as MenuItem[];
-    }
-
-    // Fallback: find first element that has menus
-    const firstWithMenus = payload.find((c: any) => Array.isArray(c?.menus));
-    if (firstWithMenus) return firstWithMenus.menus;
-
+  // If payload is an array of categories with .menus, only return menus for the matching category
+  if (categoryIdLocal) {
+    // filter categories that match the requested categoryId
+    const matched = payload.find((c: any) => {
+      try {
+        return String(c?.categoryId) === String(categoryIdLocal);
+      } catch {
+        return false;
+      }
+    });
+    if (matched && Array.isArray(matched.menus)) return matched.menus;
+    // If the page doesn't include the requested category, return empty array (do NOT flatten other categories)
     return [];
-  };
+  }
+
+  // No categoryId provided — fallback: flatten all menus (rare)
+  const allMenus = payload.reduce((acc: MenuItem[], cur: any) => {
+    if (Array.isArray(cur?.menus)) acc.push(...cur.menus);
+    return acc;
+  }, [] as MenuItem[]);
+  return allMenus;
+};
+
 
   const fetchMenus = useCallback(
     async (opts?: { page?: number; replace?: boolean }) => {
@@ -183,33 +189,41 @@ const CategoryDetailScreen: React.FC<Props> = ({ route }) => {
       else setLoadingMore(true);
 
       try {
+        // cancel previous
         cancelRef.current?.cancel("new request");
         cancelRef.current = axios.CancelToken.source();
 
-        const res = await axios.get(`${BASE_URL}/api/category/${categoryId}/menus`, {
+        // Debug: log what we're fetching
+        // console.log(`fetchMenus: categoryId=${categoryIdStr} page=${p} q=${debouncedQuery}`);
+
+        const res = await axios.get(`${BASE_URL}/api/category/${categoryIdStr}/menus`, {
           params: { page: p, limit, search: debouncedQuery },
           headers: tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : undefined,
           cancelToken: cancelRef.current.token,
           timeout: 15000,
         });
 
-        // Debug log (uncomment if needed)
-        // console.log("Category menus response:", JSON.stringify(res.data, null, 2));
+        // console.log("raw response (debug):", { page: res.data?.page, limit: res.data?.limit, totalCount: res.data?.totalCount, total: res.data?.total });
 
-        const dataMenus = extractMenus(res.data, categoryId);
-        // If backend provides top-level total/totalCount use it
-        const totalCount = typeof res?.data?.total === "number" ? res.data.total : typeof res?.data?.totalCount === "number" ? res.data.totalCount : null;
+        const dataMenus = extractMenus(res.data, categoryIdStr);
 
-        if (opts?.replace) setMenus(dataMenus);
-        else setMenus((cur) => (p === 1 ? dataMenus : [...cur, ...dataMenus]));
+        // Determine totalCount robustly. If server reports 0 but returned menus, treat total as unknown (null)
+        const reportedTotal = typeof res?.data?.total === "number" ? res.data.total : typeof res?.data?.totalCount === "number" ? res.data.totalCount : null;
+        const effectiveTotal = reportedTotal === 0 && Array.isArray(dataMenus) && dataMenus.length > 0 ? null : reportedTotal;
 
-        setTotal(totalCount);
+        if (opts?.replace || p === 1) setMenus(dataMenus);
+        else setMenus((cur) => [...cur, ...dataMenus]);
+
+        setTotal(effectiveTotal);
         setPage(p);
+
+        // Extra debug to help spot mismatches
+        // console.log(`parsed menus count=${dataMenus.length} total=${effectiveTotal}`);
       } catch (err: any) {
         if (!axios.isCancel(err)) {
           console.warn("fetchMenus error:", err?.response?.data ?? err?.message ?? err);
-          // show small alert for developers if wanted (optional)
-          // Alert.alert("Error", err?.message ?? "Failed to load menus");
+          // optionally show UI alert in dev
+          // Alert.alert('Error', err?.message ?? 'Failed to load menus');
         }
       } finally {
         setLoading(false);
@@ -217,14 +231,18 @@ const CategoryDetailScreen: React.FC<Props> = ({ route }) => {
         setRefreshing(false);
       }
     },
-    [categoryId, debouncedQuery]
+    [categoryIdStr, debouncedQuery]
   );
 
   // fetch on mount / when categoryId or debouncedQuery changes
   useEffect(() => {
+    // reset page and menus when category changes
+    setPage(1);
+    setMenus([]);
+    setTotal(null);
     fetchMenus({ page: 1, replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryId, debouncedQuery]);
+  }, [categoryIdStr, debouncedQuery]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -233,24 +251,25 @@ const CategoryDetailScreen: React.FC<Props> = ({ route }) => {
 
   const loadMore = useCallback(() => {
     if (loadingMore || loading) return;
+    // if we have a reliable total and we've already loaded it, don't load more
     if (typeof total === "number" && menus.length >= total) return;
     const next = page + 1;
     fetchMenus({ page: next });
   }, [menus, page, total, fetchMenus, loadingMore, loading]);
 
   const onAdd = useCallback((item: MenuItem) => {
-    // TODO: add to cart logic
-    console.log("Add pressed:", item?.menuId ?? item?.menuName);
-    // Example: navigation.navigate('Cart', { add: item })
+    // console.log("Add pressed:", item?.menuId ?? item?.menuName);
+    // navigation.navigate('Cart', { add: item })
   }, []);
 
-  const keyExtractor = useCallback((item: MenuItem, index: number) => {
-    // fallback to index if menuId missing
-    if (item?.menuId !== undefined && item?.menuId !== null) return String(item.menuId);
-    // if menuName exists, use its hash-ish fallback
-    if (item?.menuName) return `${item.menuName}-${index}`;
-    return String(index);
-  }, []);
+  // include categoryId in key so RN can't accidentally reuse views between categories
+  const keyExtractor = useCallback(
+    (item: MenuItem, index: number) => {
+      const idPart = item?.menuId !== undefined && item?.menuId !== null ? String(item.menuId) : item?.menuName ? `${item.menuName}-${index}` : String(index);
+      return `${categoryIdStr}-${idPart}`;
+    },
+    [categoryIdStr]
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: MenuItem }) => <MenuRow item={item} onAdd={onAdd} />,
@@ -261,7 +280,8 @@ const CategoryDetailScreen: React.FC<Props> = ({ route }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       {/* Header */}
-     <CommonHeader title={categoryName ?? "Category"}/>
+      <CommonHeader title={categoryName ?? "Category"} />
+
       {/* Search */}
       <View style={styles.searchContainer}>
         <Ionicons name="search-outline" size={hp(2.2)} color="#999" />

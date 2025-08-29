@@ -5,12 +5,14 @@ import selectedShopReducer from "./Slice/selectedShopSlice";
 import cartReducer from './Slice/cartSlice';
 import locationReducer from './Slice/locationSlice'
 import serviceReducer from './Slice/serviceAvailablilitySlice'
+import profileReducer from "@/src/Redux/Slice/profileSlice";
 // 1️⃣ Combine reducers
 const rootReducer = combineReducers({
   cart:cartReducer,
   selectedShop: selectedShopReducer,
   location:locationReducer,
-  service:serviceReducer// later add thi line bcz when app is started then app is crash 
+  service:serviceReducer,// later add thi line bcz when app is started then app is crash ,
+  profile:profileReducer
 });
 // 2️⃣ Create persist config
 const persistConfig = {

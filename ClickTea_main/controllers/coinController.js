@@ -84,11 +84,19 @@
 
 // controllers/coinController.js
 const db = require("../config/db"); // mysql2 pool
-const { emitInApp, sendPushToUsers } = require("../services/notificatonService");
+const {
+  emitInApp,
+  sendPushToUsers,
+} = require("../services/notificatonService");
 
 const payWithCoins = async (req, res) => {
   const userId = req.user.id;
-  const { totalAmount: totalAmountRaw, shopId, cartItems = [], delivery_note = "" } = req.body;
+  const {
+    totalAmount: totalAmountRaw,
+    shopId,
+    cartItems = [],
+    delivery_note = "",
+  } = req.body;
   const totalAmount = Number(totalAmountRaw) || 0;
   const io = req.io;
 
@@ -103,14 +111,20 @@ const payWithCoins = async (req, res) => {
     await conn.beginTransaction();
 
     // Lock user row
-    const [[userRow]] = await conn.query("SELECT coin FROM users WHERE id = ? FOR UPDATE", [userId]);
+    const [[userRow]] = await conn.query(
+      "SELECT coin FROM users WHERE id = ? FOR UPDATE",
+      [userId]
+    );
     if (!userRow || Number(userRow.coin) < totalAmount) {
       await conn.rollback();
       return res.status(400).json({ message: "Insufficient coins" });
     }
 
     // Deduct coins
-    await conn.query("UPDATE users SET coin = coin - ? WHERE id = ?", [totalAmount, userId]);
+    await conn.query("UPDATE users SET coin = coin - ? WHERE id = ?", [
+      totalAmount,
+      userId,
+    ]);
 
     // Create order (paid)
     const [orderResult] = await conn.query(
@@ -129,9 +143,15 @@ const payWithCoins = async (req, res) => {
         return res.status(400).json({ message: "Invalid cart item", item });
       }
 
-      let price = typeof item.price !== "undefined" && item.price !== null ? Number(item.price) : null;
+      let price =
+        typeof item.price !== "undefined" && item.price !== null
+          ? Number(item.price)
+          : null;
       if (price === null) {
-        const [menuRows] = await conn.query("SELECT price FROM menus WHERE menuId = ? LIMIT 1", [menuId]);
+        const [menuRows] = await conn.query(
+          "SELECT price FROM menus WHERE menuId = ? LIMIT 1",
+          [menuId]
+        );
         if (!menuRows.length) {
           await conn.rollback();
           return res.status(400).json({ message: `Menu not found: ${menuId}` });
@@ -143,7 +163,14 @@ const payWithCoins = async (req, res) => {
       await conn.query(
         `INSERT INTO order_items (orderId, menuId, quantity, addons, price, subtotal, status)
          VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-        [orderId, menuId, quantity, JSON.stringify(item.addons || []), price.toFixed(2), subtotal]
+        [
+          orderId,
+          menuId,
+          quantity,
+          JSON.stringify(item.addons || []),
+          price.toFixed(2),
+          subtotal,
+        ]
       );
     }
 
@@ -155,7 +182,10 @@ const payWithCoins = async (req, res) => {
     );
 
     // clear cart
-    await conn.query("DELETE FROM cart_items WHERE userId = ? AND shopId = ? AND status = 'active'", [userId, shopId]);
+    await conn.query(
+      "DELETE FROM cart_items WHERE userId = ? AND shopId = ? AND status = 'active'",
+      [userId, shopId]
+    );
 
     await conn.commit();
 
@@ -165,17 +195,32 @@ const payWithCoins = async (req, res) => {
     // Async notifications (non-blocking)
     (async () => {
       try {
-        const [[shopRow]] = await db.query("SELECT owner_id FROM shops WHERE id = ?", [shopId]);
+        const [[shopRow]] = await db.query(
+          "SELECT owner_id FROM shops WHERE id = ?",
+          [shopId]
+        );
         const vendorIds = shopRow && shopRow.owner_id ? [shopRow.owner_id] : [];
 
         if (io && vendorIds.length) {
-          try { emitInApp(io, vendorIds, "order:placed", { type: "order_placed", orderId, shopId }); }
-          catch (e) { console.warn("emitInApp failed:", e); }
+          try {
+            emitInApp(io, vendorIds, "order:placed", {
+              type: "order_placed",
+              orderId,
+              shopId,
+            });
+          } catch (e) {
+            console.warn("emitInApp failed:", e);
+          }
         }
 
         if (vendorIds.length) {
           try {
-            await sendPushToUsers(vendorIds, "New Order Placed", `Order #${orderId} has been placed.`, { type: "order_placed", orderId });
+            await sendPushToUsers(
+              vendorIds,
+              "New Order Placed",
+              `Order #${orderId} has been placed.`,
+              { type: "order_placed", orderId }
+            );
           } catch (pushErr) {
             console.warn("sendPushToUsers failed:", pushErr);
           }
@@ -188,12 +233,36 @@ const payWithCoins = async (req, res) => {
     return;
   } catch (err) {
     console.error("💥 Coin payment failed:", err);
-    try { if (conn) await conn.rollback(); } catch (rb) { console.error("rollback failed:", rb); }
-    if (!res.headersSent) return res.status(500).json({ message: "Internal server error" });
+    try {
+      if (conn) await conn.rollback();
+    } catch (rb) {
+      console.error("rollback failed:", rb);
+    }
+    if (!res.headersSent)
+      return res.status(500).json({ message: "Internal server error" });
     return;
   } finally {
-    if (conn) try { await conn.release(); } catch (_) {}
+    if (conn)
+      try {
+        await conn.release();
+      } catch (_) {}
   }
 };
+const getCoinBalance = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [[row]] = await db.query("SELECT coin FROM users WHERE id = ?", [
+      userId,
+    ]);
 
-module.exports = { payWithCoins };
+    if (!row) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.status(200).json({ coin: row.coin });
+  } catch (err) {
+    console.error("💥 Get coin balance failed:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+module.exports = { payWithCoins, getCoinBalance };

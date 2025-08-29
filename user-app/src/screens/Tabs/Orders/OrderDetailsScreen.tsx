@@ -1,37 +1,68 @@
 // OrderDetailsScreen.tsx
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, memo } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ActivityIndicator,
-  ScrollView,
+  FlatList,
   Image,
-  TouchableOpacity,
+  ScrollView,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useRoute } from "@react-navigation/native";
 import { BASE_URL } from "@/api";
 import { hp, wp } from "@/src/assets/utils/responsive";
 import theme from "@/src/assets/colors/theme";
 import CommonHeader from "@/src/Common/CommonHeader";
 import { timeAgo } from "@/src/assets/utils/timeAgo";
 
-type RouteParams = {
-  orderId?: string | number;
+// =======================
+// Helpers
+// =======================
+const getStatusLabel = (status: string) => {
+  switch (status) {
+    case "ongoing":
+      return "Preparing";
+    case "delivered":
+      return "Delivered";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return status || "Unknown";
+  }
 };
 
+// =======================
+// Subcomponents
+// =======================
+const ItemRow = memo(({ item }: { item: any }) => (
+  <View style={styles.itemRow}>
+    <Image
+      style={styles.itemImage}
+      source={{ uri: `${BASE_URL}/uploads/menus/${item?.imageUrl}` }}
+    />
+    <View style={styles.itemMeta}>
+      <Text style={styles.itemName}>{item?.menuName ?? "Unknown Item"}</Text>
+      <Text style={styles.itemSub}>₹{(item?.price ?? 0).toFixed(2)} each</Text>
+    </View>
+    <Text style={styles.itemPrice}>
+      ₹{((item?.quantity ?? 0) * (item?.price ?? 0)).toFixed(2)}
+    </Text>
+  </View>
+));
+
+// =======================
+// Main Screen
+// =======================
 const OrderDetailsScreen = () => {
-  const navigation = useNavigation();
-  const route = useRoute();
-  const { orderId } = (route.params || {}) as RouteParams;
+  const { orderId } = (useRoute().params || {}) as { orderId?: number };
 
   const [order, setOrder] = useState<any | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Abort controller ref to cancel requests on unmount / re-fetch
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchOrder = useCallback(async () => {
@@ -41,35 +72,24 @@ const OrderDetailsScreen = () => {
       return;
     }
 
-    // cancel any previous request
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
       setLoading(true);
-      setError(null); 
-
       const token = await AsyncStorage.getItem("authToken");
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
 
       const res = await axios.get(`${BASE_URL}/api/orders/${orderId}`, {
-        headers,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         signal: controller.signal,
-        timeout: 15000, // small timeout to avoid hanging requests
+        timeout: 15000,
       });
 
-      // keep original structure assumption (your code used res.data)
-      setOrder(res.data);
+      setOrder(res.data ?? {});
     } catch (err: any) {
-      // if request was aborted, ignore setting error
-      if (err?.name === "CanceledError" || axios.isCancel?.(err)) {
-        console.log("Order fetch cancelled");
-        return;
-      }
-
-      console.error("Error fetching order details:", err?.response?.data ?? err);
+      if (err?.name === "CanceledError" || axios.isCancel?.(err)) return;
+      console.error("❌ Fetch error:", err?.response?.data ?? err);
       setError("Failed to load order details.");
     } finally {
       setLoading(false);
@@ -78,36 +98,15 @@ const OrderDetailsScreen = () => {
 
   useEffect(() => {
     fetchOrder();
+    return () => abortRef.current?.abort();
+  }, [fetchOrder]);
 
-    return () => {
-      // cleanup: cancel pending request when component unmounts
-      abortRef.current?.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId]);
-
-  const renderItemRow = useCallback(
-    (itm: any, i: number) => (
-      <View key={i} style={styles.itemRow}>
-        <Image
-          style={styles.itemImagePlaceholder}
-          source={{
-            uri: `${BASE_URL}/uploads/menus/${itm.imageUrl}`,
-          }}
-        />
-        <View style={styles.itemMeta}>
-          <Text style={styles.itemName}>{itm.menuName}</Text>
-          <Text style={styles.itemSub}>₹{(itm.price ?? 0).toFixed(2)} each</Text>
-        </View>
-        <Text style={styles.itemPrice}>₹{(itm.quantity * (itm.price ?? 0)).toFixed(2)}</Text>
-      </View>
-    ),
-    []
-  );
-
+  // =======================
+  // UI States
+  // =======================
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+      <View style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color={theme.PRIMARY_COLOR} />
       </View>
     );
@@ -117,99 +116,78 @@ const OrderDetailsScreen = () => {
     return (
       <View style={styles.container}>
         <CommonHeader title="Order Details" />
-        <View style={{ padding: wp(5) }}>
-          <Text style={{ color: "#d00", textAlign: "center" }}>{error}</Text>
-        </View>
+        <Text style={styles.errorText}>{error}</Text>
       </View>
     );
   }
 
-  // fallback shape if API returns different structure
+  // =======================
+  // Extract Order Data
+  // =======================
   const items = order?.items ?? [];
   const shop = order?.shopname ?? order?.shop?.name ?? "Shop";
-  const status = order?.status ?? "unknown";
+  const status = getStatusLabel(order?.status);
   const createdAt = order?.created_at ?? order?.createdAt;
   const totalAmount = order?.totalAmount ?? order?.total_amount ?? 0;
-  const originalAmount = order?.originalAmount ?? order?.original_amount ?? totalAmount + (order?.discount ?? 0);
+  const originalAmount =
+    order?.originalAmount ?? order?.original_amount ?? totalAmount;
 
+  // =======================
+  // Render
+  // =======================
   return (
     <View style={styles.container}>
       <CommonHeader title="Order Details" />
 
-      <ScrollView contentContainerStyle={{ paddingBottom: hp(8) }} showsVerticalScrollIndicator={false}>
-        {/* Top summary card */}
-        <View style={[styles.card, styles.topCard]}>
-          <View style={styles.topHeaderRow}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: hp(6) }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Summary Card */}
+        <View style={[styles.card, styles.summaryCard]}>
+          <View style={styles.topRow}>
             <View>
-              <Text style={styles.topOrderId}>#{order?.orderId ?? orderId}</Text>
-              <Text style={styles.topShopText}>
+              <Text style={styles.orderId}>#{order?.orderId ?? orderId}</Text>
+              <Text style={styles.subText}>
                 {shop} • {createdAt ? timeAgo(createdAt) : ""}
               </Text>
             </View>
-
             <View style={styles.statusBadge}>
-              <Text style={styles.statusText}>
-                {status === "ongoing" ? "Preparing" : status}
-              </Text>
+              <Text style={styles.statusText}>{status}</Text>
             </View>
-          </View>
-
-          <View style={styles.metaRow}>
-            <Text style={styles.metaText}>Yesterday, 6:45 </Text>
-            <Text style={styles.metaText}>Delivered in 22 minutes</Text>
           </View>
         </View>
 
-        {/* Items Ordered (blue border box) */}
-        <View style={[styles.card, styles.itemsCard]}>
+        {/* Items Ordered */}
+        <View style={[styles.card]}>
           <Text style={styles.sectionTitle}>Items Ordered</Text>
+          <FlatList
+            data={items}
+            keyExtractor={(_, i) => i.toString()}
+            renderItem={({ item }) => <ItemRow item={item} />}
+            scrollEnabled={false}
+          />
+        </View>
 
-          <View style={styles.itemsBox}>
-            {items.length === 0 ? (
-              <Text style={{ color: "#666" }}>No items</Text>
-            ) : (
-              items.map((itm: any, idx: number) => renderItemRow(itm, idx))
+        {/* Payment Card */}
+        <View style={[styles.card]}>
+          <Text style={styles.sectionTitle}>To Pay</Text>
+          <View style={styles.payRow}>
+            <View>
+              <Text style={styles.strikeAmount}>
+                ₹{originalAmount.toFixed(2)}
+              </Text>
+              <Text style={styles.finalAmount}>
+                ₹{totalAmount.toFixed(2)}
+              </Text>
+            </View>
+            {originalAmount > totalAmount && (
+              <Text style={styles.savingText}>
+                Saved ₹{(originalAmount - totalAmount).toFixed(0)}
+              </Text>
             )}
           </View>
         </View>
-
-        {/* To Pay card */}
-        <View style={[styles.card, styles.payCard]}>
-          <View style={styles.payRow}>
-            <View>
-              <Text style={styles.smallLabel}>To Pay</Text>
-              <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
-                <Text style={styles.originalAmount}>₹{originalAmount?.toFixed(2)}</Text>
-                <Text style={styles.finalAmount}>  ₹{totalAmount?.toFixed(2)}</Text>
-              </View>
-            </View>
-
-            <View style={{ alignItems: "flex-end" }}>
-              <Text style={styles.savingText}>Saving { (originalAmount - totalAmount).toFixed(0) }</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Delivery Details */}
-        <View style={[styles.card, styles.infoCard]}>
-          <Text style={styles.infoTitle}>Delivery Details</Text>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Home</Text>
-            <Text style={styles.infoValue}>HRS Layout, Bangalore</Text>
-          </View>
-        </View>
-
-        {/* Payment Details */}
-        <View style={[styles.card, styles.infoCard]}>
-          <Text style={styles.infoTitle}>Payment Details</Text>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Payment Method</Text>
-            <Text style={styles.infoValue}>{order?.paymentMethod ?? order?.payment?.method ?? "UPI"}</Text>
-          </View>
-        </View>
-
-        {/* Spacer */}
-        <View style={{ height: hp(4) }} />
       </ScrollView>
     </View>
   );
@@ -217,58 +195,50 @@ const OrderDetailsScreen = () => {
 
 export default OrderDetailsScreen;
 
+// =======================
+// Styles
+// =======================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
+  center: { justifyContent: "center", alignItems: "center" },
+  errorText: {
+    textAlign: "center",
+    marginTop: hp(4),
+    color: "#d00",
+    fontSize: hp(1.7),
+  },
 
   card: {
     marginHorizontal: wp(5),
     marginTop: hp(2),
     borderRadius: 12,
-    padding: 14,
+    padding: wp(4),
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#F2F2F2",
     shadowColor: "#000",
     shadowOpacity: 0.05,
-    shadowRadius: 3,
+    shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
   },
 
-  topCard: {
-    backgroundColor: "#FFFBF0",
-    borderColor: "#FFF0D6",
-  },
-  topHeaderRow: { flexDirection: "row", justifyContent: "space-between" },
-  topOrderId: { fontSize: hp(2), fontWeight: "700", color: "#333" },
-  topShopText: { fontSize: hp(1.4), color: "#888", marginTop: 6 },
+  summaryCard: { backgroundColor: "#FFFBF0" },
+  topRow: { flexDirection: "row", justifyContent: "space-between" },
+  orderId: { fontSize: hp(2), fontWeight: "700", color: "#333" },
+  subText: { fontSize: hp(1.4), color: "#777", marginTop: 4 },
 
   statusBadge: {
-    minWidth: wp(22),
-    height: hp(3.6),
+    minWidth: wp(20),
+    height: hp(3.4),
     borderRadius: 20,
     backgroundColor: "#FFFBF0",
-    borderWidth: 1,
-    borderColor: "#ECECEC",
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 10,
+    paddingHorizontal: wp(3),
   },
   statusText: { fontSize: hp(1.4), color: "#6B6B6B", fontWeight: "500" },
 
-  metaRow: { flexDirection: "row", justifyContent: "flex-start", marginTop: hp(2) },
-  metaText: { color: "#777", marginRight: wp(4), fontSize: hp(1.35) },
-
-  sectionTitle: { fontSize: hp(1.6), fontWeight: "600", marginBottom: hp(1.2), color: "#222" },
-
-  itemsCard: {
-    paddingBottom: 6,
-  },
-  itemsBox: {
-    borderRadius: 14,
-    padding: 10,
-    backgroundColor: "#fff",
-  },
+  sectionTitle: { fontSize: hp(1.6), fontWeight: "600", marginBottom: hp(1) },
 
   itemRow: {
     flexDirection: "row",
@@ -277,27 +247,23 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F4F4F4",
   },
-  itemImagePlaceholder: {
+  itemImage: {
     width: wp(12),
     height: wp(12),
     borderRadius: 8,
     marginRight: wp(3),
   },
   itemMeta: { flex: 1 },
-  itemName: { fontSize: hp(1.7), fontWeight: "600", color: "#222" },
-  itemSub: { fontSize: hp(1.3), color: "#999", marginTop: 4 },
-  itemPrice: { fontSize: hp(1.6), fontWeight: "600", color: "#222" },
+  itemName: { fontSize: hp(1.6), fontWeight: "600", color: "#222" },
+  itemSub: { fontSize: hp(1.3), color: "#999", marginTop: 2 },
+  itemPrice: { fontSize: hp(1.5), fontWeight: "600", color: "#222" },
 
-  payCard: {},
-  payRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  smallLabel: { fontSize: hp(1.3), color: "#777", marginBottom: 6 },
-  originalAmount: { fontSize: hp(1.3), color: "#999", textDecorationLine: "line-through" },
-  finalAmount: { fontSize: hp(1.9), fontWeight: "700", color: "#000" },
-  savingText: { color: "#13A452", fontWeight: "600" },
-
-  infoCard: {},
-  infoTitle: { fontSize: hp(1.4), color: "#666", marginBottom: hp(0.8) },
-  infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  infoLabel: { fontSize: hp(1.6), fontWeight: "600", color: "#222" },
-  infoValue: { fontSize: hp(1.4), color: "#666" },
+  payRow: { flexDirection: "row", justifyContent: "space-between" },
+  strikeAmount: {
+    fontSize: hp(1.3),
+    color: "#999",
+    textDecorationLine: "line-through",
+  },
+  finalAmount: { fontSize: hp(1.8), fontWeight: "700", color: "#000" },
+  savingText: { color: "#13A452", fontWeight: "600", fontSize: hp(1.4) },
 });
