@@ -19,6 +19,7 @@ import axios from "axios";
 import { BASE_URL } from "@/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AuthContext } from "@/src/context/authContext";
+import axiosClient from "@/src/api/client";
 
 interface FormData {
   login_input: string;
@@ -43,41 +44,48 @@ const SignInScreen: React.FC = () => {
 
   const { signIn } = useContext(AuthContext);
 
-  const onSubmit = async (data: FormData) => {
-    setLoading(true);
-    try {
-      const response = await axios.post(`${BASE_URL}/api/auth/signin`, data, {
-        headers: { "Content-Type": "application/json" },
-      });
+const onSubmit = async (data: FormData) => {
+  setLoading(true);
+  try {
+    const response = await axiosClient.post(`${BASE_URL}/api/auth/signin`, data, {
+      headers: { "Content-Type": "application/json" },
+    });
 
-      if (response.status === 200 && response.data?.token) {
-        const token = response.data.token;
-        const userId = response.data.userId ?? response.data?.id; // adapt to your backend shape
+    // The API may return either `token` or `accessToken` (or both).
+    const token = response.data?.token ?? response.data?.accessToken ?? null;
+    const refresh = response.data?.refreshToken ?? null;
+    const userId = response.data?.user?.id ?? response.data?.userId ?? null;
 
-        // Persist + register push token handled inside signIn
-        await signIn(token, userId);
-        // No navigation call required — StackNavigatorScreens will re-render to authenticated stack
-      } else {
-        Alert.alert("Login Error", "No token received from server.");
-        console.log("Unexpected sign-in response:", response.data);
-      }
-    } catch (error: any) {
-      const errMessage = error?.response?.data?.message;
-      if (errMessage === "User not found") {
-        Alert.alert("Account Not Found", "You don't have an account. Please sign up first.", [
-          { text: "Sign Up", onPress: () => navigation.navigate("signUpScreen") },
-          { text: "Cancel", style: "cancel" },
-        ]);
-      } else if (errMessage === "Invalid credentials") {
-        Alert.alert("Login Failed", "Incorrect email or password.");
-      } else {
-        Alert.alert("Error", "Something went wrong. Please try again.");
-      }
-      console.log("Sign In failed", errMessage || error);
-    } finally {
-      setLoading(false);
+    // Helpful debug log (remove or lower log level in production)
+    // console.log("Sign-in response:", response.data);
+
+    if (token) {
+      // Pass refresh token if present (optional)
+      await signIn(token, userId, refresh);
+      // After signIn, AuthProvider will fetch profile / re-render to auth stack
+    } else {
+      // still provide helpful debug info & show user-friendly message
+      console.warn("Sign In: no access token in response", response.data);
+      Alert.alert("Login Error", "No access token received from server. Please try again.");
     }
-  };
+  } catch (error: any) {
+    const errMessage = error?.response?.data?.message;
+    if (errMessage === "User not found") {
+      Alert.alert("Account Not Found", "You don't have an account. Please sign up first.", [
+        { text: "Sign Up", onPress: () => navigation.navigate("signUpScreen") },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    } else if (errMessage === "Invalid credentials") {
+      Alert.alert("Login Failed", "Incorrect email or password.");
+    } else {
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    }
+    
+    console.log("Sign In failed", errMessage || error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <View style={styles.container}>
@@ -130,7 +138,14 @@ const SignInScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
       {errors.password && <Text style={styles.error}>{errors.password.message}</Text>}
-
+<View style={{ alignItems: "flex-end", marginBottom: hp(2) }}>
+  <Text
+    style={{ color: theme.SECONDARY_COLOR, fontSize: 13, fontWeight: "500" }}
+    onPress={() => navigation.navigate("forgotPassWordScreen")}
+  >
+    Forgot Password?
+  </Text>
+</View>
       <TouchableOpacity
         style={[styles.signInBtn, loading && { opacity: 0.8 }]}
         onPress={handleSubmit(onSubmit)}
@@ -151,7 +166,7 @@ const SignInScreen: React.FC = () => {
 
       <TouchableOpacity style={styles.googleBtn}>
         <Image
-          source={require("../../../assets/images/FirstTeaBaglog.jpg")}
+          source={require("../../../assets/images/splashImage.jpg")}
           style={styles.googleIcon}
         />
         <Text style={styles.googleText}>Continue with Google</Text>

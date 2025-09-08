@@ -19,6 +19,7 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BASE_URL } from "@/api";
 import { useAddress } from "@/src/context/addressContext";
+import axiosClient from "@/src/api/client";
 
 type AddressItem = {
   id: string;
@@ -85,10 +86,10 @@ useEffect(() => {
         setLoading(false);
         return;
       }
-      const res = await axios.get(`${BASE_URL}/api/address/list`, {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 10000,
-      });
+      const res = await axiosClient.get("/api/address/list", {
+   timeout: 10000, 
+      // signal: controller.signal as any,
+       });
 
       if (res.status === 200 && Array.isArray(res.data)) {
         setAddresses(res.data);

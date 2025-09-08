@@ -13,6 +13,7 @@ import { hp, wp } from "@/src/assets/utils/responsive";
 import theme from "@/src/assets/colors/theme";
 import { BASE_URL } from "@/api";
 import CommonHeader2 from "@/src/Common/CommonHeader2";
+import axiosClient from "@/src/assets/api/client";
 
 const MenuItemScreen = () => {
   const [menus, setMenus] = useState([]);
@@ -21,8 +22,8 @@ const MenuItemScreen = () => {
     (async () => {
       try {
         const token = await AsyncStorage.getItem("authToken");
-        const res = await axios.get(`${BASE_URL}/api/menu/my-menus`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const res = await axiosClient.get(`${BASE_URL}/api/menu/my-menus`, {
+          // headers: { Authorization: `Bearer ${token}` },
         });
         setMenus(res.data);
       } catch (err) {

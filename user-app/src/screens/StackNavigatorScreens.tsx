@@ -151,6 +151,11 @@ import OrdersScreen from "./Tabs/Orders/OrdersScreen";
 import CategoryDetailScreen from "./Tabs/Home/AllCategoryScreen/CategoryDetailScreen";
 import MenuDetailScreen from "./Tabs/Home/Menu/MenuDetailScreen";
 import SearchScreen from "./Tabs/Home/Search/SearchScreen";
+import ChangePasswordScreen from "./Tabs/Profile/ChangePassword/ChangePasswordScreen";
+import CoinWalletScreen from "./Tabs/Profile/CoinWallet/CoinWalletScreen";
+import ForgotPasswordScreen from "./auth/Password/ForgotPasswordScreen";
+import ResetPasswordScreen from "./auth/Password/ResetPasswordScreen";
+import EditProfileScreen from "./Tabs/Profile/EditProfileScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -173,6 +178,8 @@ const StackNavigatorScreens: React.FC = () => {
             <Stack.Screen name="onBoardScreen" component={OnBoardScreen} />
             <Stack.Screen name="signUpScreen" component={SignUpScreen} />
             <Stack.Screen name="signInScreen" component={SignInScreen} />
+                  <Stack.Screen name="forgotPassWordScreen" component={ForgotPasswordScreen} />
+            <Stack.Screen name="resetPasswordScreen" component={ResetPasswordScreen} />
           </>
         ) : (
           <>
@@ -190,6 +197,10 @@ const StackNavigatorScreens: React.FC = () => {
             <Stack.Screen name="categoryDetailScreen" component={CategoryDetailScreen} />
             <Stack.Screen name="menuDetailScreen" component={MenuDetailScreen} />
             <Stack.Screen name="searchScreen" component={SearchScreen} />
+            <Stack.Screen name="changePasswordScreen" component={ChangePasswordScreen} />
+            <Stack.Screen name="coinWalletScreen" component={CoinWalletScreen} />
+            <Stack.Screen name="editProfileScreen" component={EditProfileScreen} />
+      
             <Stack.Screen name="bottomTabScreen" component={BottomTabs} />
           </>
         )}

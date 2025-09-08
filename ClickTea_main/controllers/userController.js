@@ -1,8 +1,9 @@
 const db = require("../config/db");
-
+const path = require("path");
 const getUserProfile = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
+
 
     const [rows] = await db.query(
       `
@@ -75,6 +76,58 @@ const getUserProfile = async (req, res) => {
   }
 };
 
+
+const updateUserProfile = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { username, email, phone, country_code } = req.body;
+
+    // ✅ build update object dynamically
+    let updateFields = [];
+    let values = [];
+
+    if (username) {
+      updateFields.push("username = ?");
+      values.push(username);
+    }
+    if (email) {
+      updateFields.push("email = ?");
+      values.push(email);
+    }
+    if (phone) {
+      updateFields.push("phone = ?");
+      values.push(phone);
+    }
+    if (country_code) {
+      updateFields.push("country_code = ?");
+      values.push(country_code);
+    }
+
+    // ✅ handle profile image upload
+    if (req.file) {
+      const imagePath = path.join("uploads/users", req.file.filename);
+      updateFields.push("userImage = ?");
+      values.push(imagePath);
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    values.push(userId);
+
+    await db.query(
+      `UPDATE users SET ${updateFields.join(", ")}, updated_at = NOW() WHERE id = ?`,
+      values
+    );
+
+    res.status(200).json({ message: "Profile updated successfully" });
+  } catch (err) {
+    console.error("Update profile error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
 module.exports = {
   getUserProfile,
+  updateUserProfile
 };

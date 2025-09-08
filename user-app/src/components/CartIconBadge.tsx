@@ -23,6 +23,8 @@ const dispatch = useDispatch();
 useEffect(() => {
   (async () => {
     const id = await AsyncStorage.getItem("userId");
+    // console.log(id);
+    
     if (id) {
       await dispatch(fetchCartAsync(id));
     }

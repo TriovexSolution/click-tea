@@ -90,7 +90,7 @@ const {
 } = require("../services/notificatonService");
 
 const payWithCoins = async (req, res) => {
-  const userId = req.user.id;
+  const userId = req.user.userId;
   const {
     totalAmount: totalAmountRaw,
     shopId,
@@ -129,7 +129,7 @@ const payWithCoins = async (req, res) => {
     // Create order (paid)
     const [orderResult] = await conn.query(
       `INSERT INTO orders (userId, shopId, totalAmount, payment_type, is_paid, status, delivery_note)
-       VALUES (?, ?, ?, 'coin', 1, 'pending', ?)`,
+       VALUES (?, ?, ?, 'coin', 1, 'preparing', ?)`,
       [userId, shopId, totalAmount, delivery_note]
     );
     const orderId = orderResult.insertId;
@@ -250,7 +250,7 @@ const payWithCoins = async (req, res) => {
 };
 const getCoinBalance = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const [[row]] = await db.query("SELECT coin FROM users WHERE id = ?", [
       userId,
     ]);
@@ -265,4 +265,22 @@ const getCoinBalance = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-module.exports = { payWithCoins, getCoinBalance };
+const getCoinHistory = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const [rows] = await db.query(
+      `SELECT id, orderId, type, amount, reason, created_at
+       FROM coin_history
+       WHERE userId = ?
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    return res.status(200).json(rows);
+  } catch (err) {
+    console.error("💥 Get coin history failed:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+module.exports = { payWithCoins, getCoinBalance,getCoinHistory };

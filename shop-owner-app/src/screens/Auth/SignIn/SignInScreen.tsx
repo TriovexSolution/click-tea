@@ -14,14 +14,16 @@ import { hp } from "@/src/assets/utils/responsive";
 import theme from "@/src/assets/colors/theme";
 import { ParamListBase, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import axios from "axios";
 import { BASE_URL } from "@/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import axiosClient from "@/src/assets/api/client";
+import { useAuth } from "@/src/context/authContext";
+
 interface FormData {
   login_input: string;
-  // phone:string;
   password: string;
 }
+
 const SignInScreen = () => {
   const {
     control,
@@ -31,90 +33,62 @@ const SignInScreen = () => {
     defaultValues: {
       login_input: "",
       password: "",
-      // phone:""
     },
   });
   const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>();
   const [showPassword, setShowPassword] = useState(false);
+  const { signIn } = useAuth(); // Get signIn from AuthContext
 
-
-// put this inside your component to replace the existing onSubmit
 const onSubmit = async (data: FormData) => {
   console.log("Submitting sign in:", data);
 
-  // show a basic loading UX if you want (optional)
-  // setLoading(true);
-
   try {
-    // you can set a timeout to fail faster on network problems
-    const response = await axios.post(
+    const response = await axiosClient.post(
       `${BASE_URL}/api/auth/signin`,
       data,
       {
         headers: { "Content-Type": "application/json" },
-        timeout: 15000, // 15s
+        timeout: 15000,
       }
     );
 
-    // console.groupCollapsed("SignIn success");
-    // console.log("status:", response.status);
-    // console.log("data:", response.data);
-    // console.groupEnd();
-if(response.status === 200){
-  const { token, user } = response.data ?? {};
-    if (!token) {
-      Alert.alert("Login failed", "Server did not return an auth token. Contact support.");
-      // setLoading(false);
-      return;
+    console.log("Full server response:", JSON.stringify(response.data, null, 2));
+
+    if (response.status === 200) {
+      const { accessToken, user, refreshToken, message } = response.data ?? {};
+      console.log("Extracted accessToken:", accessToken);
+      console.log("Extracted user:", user);
+      console.log("Extracted refreshToken:", refreshToken);
+
+      if (!accessToken) {
+        Alert.alert("Login failed", "Server did not return an auth token. Contact support.");
+        return;
+      }
+
+      // Call signIn with accessToken, user.id, user.shopId, and refreshToken
+      await signIn(accessToken, user.id, user.shopId, refreshToken);
+
+      // Always navigate to OnBoardScreen
+      navigation.replace("onBoardScreen");
     }
-    await AsyncStorage.setItem("authToken", token);
-    if (user?.id) await AsyncStorage.setItem("owner_id", String(user.id));
-    if (user?.shopId) await AsyncStorage.setItem("shop_id", String(user.shopId));
-
-    // navigate after success
-    navigation.navigate("onBoardScreen");
-}
-
-  
-
-
   } catch (err: any) {
-    // setLoading(false);
     console.groupCollapsed("SignIn error");
-    // axios error (server responded or request made but no response)
-    if (axios.isAxiosError(err)) {
+    if (axiosClient.isCancel?.(err)) {
       console.log("axios error message:", err.message);
-      console.log("config:", err.config);
+      console.log("response.data:", err.response?.data);
+      const serverMsg = err.response?.data?.message ?? err.response?.data?.error ?? JSON.stringify(err.response?.data);
 
-      if (err.response) {
-        // server responded with a status code out of 2xx
-        console.log("response.status:", err.response.status);
-        console.log("response.data:", err.response.data);
-        const serverMsg = err.response.data?.message ?? err.response.data?.error ?? JSON.stringify(err.response.data);
-
-        // handle common server messages
-        if (serverMsg === "User not found") {
-          Alert.alert("Account Not Found", "You don't have an account. Please sign up first.", [
-            { text: "Sign Up", onPress: () => navigation.navigate("signUpScreen") },
-            { text: "Cancel", style: "cancel" },
-          ]);
-        } else if (serverMsg === "Invalid credentials") {
-          Alert.alert("Login Failed", "Incorrect email or password.");
-        } else {
-          // generic server error
-          Alert.alert("Error", serverMsg || "Server error. Please try again.");
-        }
-      } else if (err.request) {
-        // request made but no response (network issue)
-        console.log("no response, request:", err.request);
-        Alert.alert("Network error", "Unable to reach server. Check your connection and BASE_URL.");
+      if (serverMsg === "User not found") {
+        Alert.alert("Account Not Found", "You don't have an account. Please sign up first.", [
+          { text: "Sign Up", onPress: () => navigation.navigate("signUpScreen") },
+          { text: "Cancel", style: "cancel" },
+        ]);
+      } else if (serverMsg === "Invalid credentials") {
+        Alert.alert("Login Failed", "Incorrect email or password.");
       } else {
-        // something happened setting up the request
-        console.log("request setup error:", err.message);
-        Alert.alert("Error", err.message || "An unexpected error occurred.");
+        Alert.alert("Error", serverMsg || "Server error. Please try again.");
       }
     } else {
-      // non-axios error (rare)
       console.log("non-axios error:", err);
       Alert.alert("Error", "Something went wrong. Please try again.");
     }

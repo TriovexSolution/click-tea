@@ -30,7 +30,7 @@ const createShop = async (req, res) => {
       }
     } else {
       // If shop_owner, use their own user id
-      owner_id = req.user.id;
+      owner_id = req.user.userId;
 
       // Check if shop already exists
       const [existing] = await db.query("SELECT * FROM shops WHERE owner_id = ?", [owner_id]);

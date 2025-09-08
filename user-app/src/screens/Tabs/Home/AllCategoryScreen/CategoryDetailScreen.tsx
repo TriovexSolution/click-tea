@@ -28,6 +28,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ParamListBase, useNavigation } from "@react-navigation/native";
 import CommonHeader from "@/src/Common/CommonHeader";
+import axiosClient from "@/src/api/client";
 
 // --------------------- Types ---------------------
 type MenuItem = {
@@ -132,7 +133,7 @@ const CategoryDetailScreen = ({ route }:any) => {
 
   // token + cancel
   const tokenRef = useRef<string | null>(null);
-  const cancelRef = useRef(axios.CancelToken.source());
+  const cancelRef = useRef(axiosClient.CancelToken.source());
 
   useEffect(() => {
     (async () => {
@@ -191,14 +192,14 @@ const extractMenus = (resData: any, categoryIdLocal?: string): MenuItem[] => {
       try {
         // cancel previous
         cancelRef.current?.cancel("new request");
-        cancelRef.current = axios.CancelToken.source();
+        cancelRef.current = axiosClient.CancelToken.source();
 
         // Debug: log what we're fetching
         // console.log(`fetchMenus: categoryId=${categoryIdStr} page=${p} q=${debouncedQuery}`);
 
-        const res = await axios.get(`${BASE_URL}/api/category/${categoryIdStr}/menus`, {
+        const res = await axiosClient.get(`/api/category/${categoryIdStr}/menus`, {
           params: { page: p, limit, search: debouncedQuery },
-          headers: tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : undefined,
+          // headers: tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : undefined,
           cancelToken: cancelRef.current.token,
           timeout: 15000,
         });
@@ -220,7 +221,7 @@ const extractMenus = (resData: any, categoryIdLocal?: string): MenuItem[] => {
         // Extra debug to help spot mismatches
         // console.log(`parsed menus count=${dataMenus.length} total=${effectiveTotal}`);
       } catch (err: any) {
-        if (!axios.isCancel(err)) {
+        if (!axiosClient.isCancel(err)) {
           console.warn("fetchMenus error:", err?.response?.data ?? err?.message ?? err);
           // optionally show UI alert in dev
           // Alert.alert('Error', err?.message ?? 'Failed to load menus');

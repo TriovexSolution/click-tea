@@ -19,6 +19,7 @@ import axios from "axios";
 import { BASE_URL } from "@/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation } from "@react-navigation/native";
+import axiosClient from "@/src/api/client";
 
 // Dummy data for states and cities, replace with real API or data source
 const STATES = ["Gujrat", "Maharashtra","Delhi","Karnataka",];
@@ -72,17 +73,17 @@ const AddNewAddressScreen = () => {
   }, [selectedState, setValue]);
 
   // Fetch token once on mount for optimization
-  useEffect(() => {
-    const fetchToken = async () => {
-      try {
-        const token = await AsyncStorage.getItem("authToken");
-        setAuthToken(token);
-      } catch (error) {
-        console.log("Error fetching token", error);
-      }
-    };
-    fetchToken();
-  }, []);
+  // useEffect(() => {
+  //   const fetchToken = async () => {
+  //     try {
+  //       const token = await AsyncStorage.getItem("authToken");
+  //       setAuthToken(token);
+  //     } catch (error) {
+  //       console.log("Error fetching token", error);
+  //     }
+  //   };
+  //   fetchToken();
+  // }, []);
 
   const onSubmit = async (data) => {
     try {
@@ -91,10 +92,10 @@ const AddNewAddressScreen = () => {
         return;
       }
 
-      const response = await axios.post(`${BASE_URL}/api/address/add`, data, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-
+      // const response = await axios.post(`${BASE_URL}/api/address/add`, data, {
+      //   headers: { Authorization: `Bearer ${authToken}` },
+      // });
+ const response = await axiosClient.post("/api/address/add", data);
       if (response.status === 201) {
         Alert.alert("Success", "Address added successfully!", [
           {

@@ -13,6 +13,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import axios from "axios";
 import { BASE_URL } from "@/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import axiosClient from "@/src/api/client";
 
 interface FormData {
   username: string;
@@ -38,7 +39,7 @@ const SignUpScreen = () => {
 
   const onSubmit = async (data: FormData) => {
     try {
-      const response = await axios.post(`${BASE_URL}/api/auth/signup`, {
+      const response = await axiosClient.post(`${BASE_URL}/api/auth/signup`, {
         username: data.username,
         email: data.email,
         country_code: "+91",

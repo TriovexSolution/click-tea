@@ -202,6 +202,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import CommonHeader2 from "@/src/Common/CommonHeader2";
+import axiosClient from "@/src/assets/api/client";
 
 const AddCategoryScreen = () => {
   const [categoryName, setCategoryName] = useState("");
@@ -245,10 +246,11 @@ const AddCategoryScreen = () => {
         } as any);
       }
 
-      await axios.post(`${BASE_URL}/api/category/create`, formData, {
+      await axiosClient.post('/api/category', formData, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          // Authorization: `Bearer ${token}`,
           "Content-Type": "multipart/form-data",
+          Accept:"application/json"
         },
       });
 

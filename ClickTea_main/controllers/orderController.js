@@ -110,7 +110,7 @@ const { sendPushToUsers, emitInApp, notifyUsers } = require("../services/notific
 // };
 const placeOrder = async (req, res) => {
   const { cartItems, shopId, totalAmount: totalAmountRaw, payment_type, delivery_note = "" } = req.body;
-  const userId = req.user?.id;
+  const userId = req.user?.userId;
   const totalAmount = Number(totalAmountRaw) || 0;
 
   if (!Array.isArray(cartItems) || cartItems.length === 0) return res.status(400).json({ message: "Cart is empty" });
@@ -183,11 +183,11 @@ const placeOrder = async (req, res) => {
     const finalTotal = Number(computedTotal.toFixed(2));
 
     // Insert order
-    const [orderResult] = await conn.query(
-      `INSERT INTO orders (userId, shopId, totalAmount, payment_type, is_paid, delivery_note, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-      [userId, shopId, finalTotal, payment_type ?? "unknown", 0, delivery_note]
-    );
+    const [orderResult] =await conn.query(
+  `INSERT INTO orders (userId, shopId, totalAmount, payment_type, is_paid, delivery_note, status, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+  [userId, shopId, finalTotal, payment_type ?? "unknown", 1, delivery_note, 'preparing']
+);
     const orderId = orderResult.insertId;
 
     // Insert order_items
@@ -230,7 +230,7 @@ const placeOrder = async (req, res) => {
 // ✅ 2. Get Orders for a User
 const getMyOrders = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     // 1. Get user orders with shop info
     const [orders] = await db.query(
@@ -395,7 +395,7 @@ const getOrderById = async (req, res) => {
     // - users can only access their own orders
     // - shop_owner can access orders of their shop
     // - admin can access all
-    if (user.role === "user" && order.userId !== user.id) {
+    if (user.role === "user" && order.userId !== user.userId) {
       return res.status(403).json({ message: "You are not allowed to view this order" });
     }
 
@@ -473,46 +473,129 @@ const getOrderById = async (req, res) => {
 };
 
 // ✅ 5. Cancel Order (user/shop_owner/admin)
+// const cancelOrder = async (req, res) => {
+//   try {
+//     const { orderId } = req.params;
+//     const role = req.user.role;
+
+//     // Get order and user/shop checks
+//     const [orders] = await db.query("SELECT * FROM orders WHERE orderId = ?", [orderId]);
+//     if (!orders.length) return res.status(404).json({ message: "Order not found" });
+
+//     const order = orders[0];
+
+//     // 🔒 Authorization
+//     if (role === "user" && order.userId !== req.user.id)
+//       return res.status(403).json({ message: "You can't cancel this order" });
+
+//     if (role === "shop_owner") {
+//       const [shop] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
+//       if (!shop.length || shop[0].id !== order.shopId)
+//         return res.status(403).json({ message: "You can't cancel this order" });
+//     }
+
+//     // ✅ Update order status
+//     await db.query("UPDATE orders SET status = 'cancelled' WHERE orderId = ?", [orderId]);
+
+//     // ✅ Refund coins only if paid using 'coin'
+//     if (order.payment_type === "coin") {
+//       // Refund coins to user
+//       await db.query("UPDATE users SET coin = coin + ? WHERE id = ?", [order.totalAmount, order.userId]);
+
+//       // Add coin_history log
+//       await db.query(
+//         `INSERT INTO coin_history (userId, orderId, type, amount, reason) 
+//          VALUES (?, ?, 'credit', ?, 'Order Cancelled')`,
+//         [order.userId, orderId, order.totalAmount]
+//       );
+//     }
+
+//     res.status(200).json({
+//       message: `Order cancelled successfully${order.payment_type === "coin" ? ' — refund added as ClickTea Coins' : ''}`,
+//     });
+//   } catch (err) {
+//     console.error("Cancel order error:", err);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
 const cancelOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
     const role = req.user.role;
+    const userId = req.user.userId;
 
-    // Get order and user/shop checks
+    // Get order
     const [orders] = await db.query("SELECT * FROM orders WHERE orderId = ?", [orderId]);
     if (!orders.length) return res.status(404).json({ message: "Order not found" });
 
     const order = orders[0];
 
-    // 🔒 Authorization
-    if (role === "user" && order.userId !== req.user.id)
+    // Authorization
+    if (role === "user" && order.userId !== userId)
       return res.status(403).json({ message: "You can't cancel this order" });
 
     if (role === "shop_owner") {
-      const [shop] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
+      const [shop] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [userId]);
       if (!shop.length || shop[0].id !== order.shopId)
         return res.status(403).json({ message: "You can't cancel this order" });
     }
 
-    // ✅ Update order status
-    await db.query("UPDATE orders SET status = 'cancelled' WHERE orderId = ?", [orderId]);
-
-    // ✅ Refund coins only if paid using 'coin'
-    if (order.payment_type === "coin") {
-      // Refund coins to user
-      await db.query("UPDATE users SET coin = coin + ? WHERE id = ?", [order.totalAmount, order.userId]);
-
-      // Add coin_history log
-      await db.query(
-        `INSERT INTO coin_history (userId, orderId, type, amount, reason) 
-         VALUES (?, ?, 'credit', ?, 'Order Cancelled')`,
-        [order.userId, orderId, order.totalAmount]
-      );
+    // Prevent double-cancel / double-refund
+    if (order.status === "cancelled") {
+      return res.status(400).json({ message: "Order already cancelled", refunded: false });
     }
 
-    res.status(200).json({
-      message: `Order cancelled successfully${order.payment_type === "coin" ? ' — refund added as ClickTea Coins' : ''}`,
-    });
+    // Start transaction to update order + refund safely
+    let conn;
+    try {
+      conn = await db.getConnection();
+      await conn.beginTransaction();
+
+      // Mark order cancelled
+      await conn.query("UPDATE orders SET status = 'cancelled' WHERE orderId = ?", [orderId]);
+
+      let refunded = false;
+      let refundAmount = 0;
+      let newCoinBalance = null;
+
+      if (order.payment_type === "coin") {
+        refundAmount = Number(order.totalAmount) || 0;
+
+        // Refund coins to user
+        await conn.query("UPDATE users SET coin = coin + ? WHERE id = ?", [refundAmount, order.userId]);
+
+        // Add coin_history log
+        await conn.query(
+          `INSERT INTO coin_history (userId, orderId, type, amount, reason, created_at)
+           VALUES (?, ?, 'credit', ?, 'Order Cancelled', NOW())`,
+          [order.userId, orderId, refundAmount]
+        );
+
+        // read new balance
+        const [[userRow]] = await conn.query("SELECT coin FROM users WHERE id = ?", [order.userId]);
+        newCoinBalance = userRow ? Number(userRow.coin) : null;
+        refunded = true;
+      }
+
+      await conn.commit();
+
+      const message = refunded
+        ? `Order cancelled. ₹${refundAmount.toFixed(2)} credited to your ClickTea Coins.`
+        : "Order cancelled successfully.";
+
+      return res.status(200).json({
+        message,
+        refunded,
+        refundAmount,
+        newCoinBalance,
+      });
+    } catch (innerErr) {
+      if (conn) await conn.rollback();
+      console.error("Cancel transaction error:", innerErr);
+      return res.status(500).json({ message: "Server error during cancel" });
+    } finally {
+      if (conn) try { await conn.release(); } catch (_) {}
+    }
   } catch (err) {
     console.error("Cancel order error:", err);
     res.status(500).json({ message: "Server error" });
@@ -566,7 +649,7 @@ const updateOrderStatus = async (req, res) => {
     const { orderId } = req.params;
     const { status } = req.body;
     const role = req.user.role;
-    const actorId = req.user.id;
+    const actorId = req.user.userId;
 
     if (!orderId || !status) return res.status(400).json({ message: "orderId and status required" });
 
@@ -797,14 +880,10 @@ for (let item of cartItems) {
 //   }
 // };
 const getPopularItems = async (req, res) => {
-  // console.log("hit /popular-items", req.query, req.user?.id);
-  const { lat, lng, debug } = req.query;
-
-  if (!lat || !lng) {
-    return res.status(400).json({ message: "Latitude and longitude are required" });
-  }
-
   try {
+    const { lat, lng, debug } = req.query;
+
+    // Build query
     const query = `
       SELECT
         oi.menuId,
@@ -812,13 +891,12 @@ const getPopularItems = async (req, res) => {
         m.imageUrl,
         m.price,
         SUM(oi.quantity) AS totalQuantity
-      FROM
-        order_items oi
+      FROM order_items oi
       JOIN orders o ON oi.orderId = o.orderId
       JOIN menus m ON oi.menuId = m.menuId
       WHERE
         o.status = 'delivered'
-        AND o.ordered_at >= NOW() - INTERVAL 1 DAY
+        AND o.created_at >= NOW() - INTERVAL 1 DAY
         AND o.shopId IN (
           SELECT id FROM shops
           WHERE
@@ -828,36 +906,29 @@ const getPopularItems = async (req, res) => {
               sin(radians(?)) * sin(radians(latitude))
             )) <= 3
         )
-      GROUP BY
-        oi.menuId, m.menuName, m.imageUrl, m.price
+      GROUP BY oi.menuId, m.menuName, m.imageUrl, m.price
       ORDER BY totalQuantity DESC
       LIMIT 7;
     `;
-
     const params = [lat, lng, lat];
 
-    const [popularItems] = await db.query(query, params);
-
-    // optional debug info (development only)
-    if (debug === '1') {
-      console.log('DEBUG popularItems length:', popularItems.length);
-      return res.status(200).json({
-        debug: {
-          query,
-          params,
-          returnedCount: popularItems.length,
-          sample: popularItems.slice(0, 5),
-        },
-        popularItems,
-      });
+    // 🔍 Debug mode
+    if (debug === "1") {
+      // console.log("📌 SQL QUERY:", query);
+      // console.log("📌 Params:", params);
     }
 
-    return res.status(200).json(popularItems);
+    const [rows] = await db.query(query, params);
+
+// console.log("📌 Query result count:", rows.length);  // <--- add this
+// console.log("📌 First row sample:", rows[0]);   
+    res.status(200).json(rows);
   } catch (err) {
-    console.error("Error fetching popular items:", err);
-    return res.status(500).json({ message: "Server error" });
+    console.error("❌ PopularItems API error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
+
 
 
 module.exports = {

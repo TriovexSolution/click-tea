@@ -19,7 +19,7 @@ const addressRoutes = require("./routes/addressRoutes")
 const serviceRoutes = require("./routes/servieRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const searchRoutes = require("./routes/searchRoutes");
-
+const  bestSelleRoutes = require("./routes/bestRoutes")
 const { Server } = require("socket.io");
 // Middleware
 app.use(cors());
@@ -60,6 +60,7 @@ app.use("/api/service", serviceRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/api/best-sellers",bestSelleRoutes);
 
 // Start the server
 const PORT = process.env.PORT || 5000;

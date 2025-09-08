@@ -21,6 +21,7 @@ import { BASE_URL } from "@/api";
 import { hp } from "@/src/assets/utils/responsive";
 import theme from "@/src/assets/colors/theme";
 import { useSelector } from "react-redux";
+import axiosClient from "@/src/assets/api/client";
 
 
 const STATUS_OPTIONS = ["pending", "preparing", "ready", "delivered", "cancelled","ongoing"];
@@ -131,8 +132,8 @@ const OrdersScreen = () => {
     try {
       if (reset) setLoading(true);
       const token = await AsyncStorage.getItem("authToken");
-      const { data: profile } = await axios.get(`${BASE_URL}/api/profile`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const { data: profile } = await axiosClient.get(`${BASE_URL}/api/profile`, {
+        // headers: { Authorization: `Bearer ${token}` },
       });
       const shopId = profile.shopId;
       if (!shopId) return Alert.alert("No Shop Found");
@@ -140,8 +141,8 @@ const OrdersScreen = () => {
       let url = `${BASE_URL}/api/orders/shop-orders?shopId=${shopId}&page=${page}&limit=${LIMIT}`;
       if (status !== "all") url += `&status=${status}`;
 
-      const { data } = await axios.get(url, {
-        headers: { Authorization: `Bearer ${token}` },
+      const { data } = await axiosClient.get(url, {
+        // headers: { Authorization: `Bearer ${token}` },
       });
 // console.log(data);
 
@@ -159,10 +160,10 @@ const OrdersScreen = () => {
   const updateStatus = async ({orderId, newStatus}:any) => {
     try {
       const token = await AsyncStorage.getItem("authToken");
-      await axios.put(
+      await axiosClient.put(
         `${BASE_URL}/api/orders/status/${orderId}`,
         { status: newStatus },
-        { headers: { Authorization: `Bearer ${token}` } }
+        // { headers: { Authorization: `Bearer ${token}` } }
       );
       Alert.alert("Success", "Order status updated");
       fetchOrders(1, selectedStatusFilter, true);

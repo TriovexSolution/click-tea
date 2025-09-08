@@ -1,19 +1,35 @@
 {
   "expo": {
-    "name": "user-app",
+    "name": "ClickTea",
     "slug": "user-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./src/assets/images/splashImage.jpg",
     "scheme": "userapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
-
+  "android": {
+    "permissions": [
+    "CAMERA",
+    "READ_EXTERNAL_STORAGE",
+    "WRITE_EXTERNAL_STORAGE",
+    "ACCESS_FINE_LOCATION"
+  ],
+    "adaptiveIcon": {
+      "foregroundImage":"./src/assets/images/splashImage.jpg",
+      "backgroundColor": "#ffffff"
+    }
+  },
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "splash": {
+  "image":"./src/assets/images/splashImage.jpg",
+  "resizeMode": "contain",
+  "backgroundColor": "#ffffff"
+}
   }
 }

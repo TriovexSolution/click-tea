@@ -383,6 +383,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { ParamListBase, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import axiosClient from "@/src/assets/api/client";
 
 const EnterShopDetailScreen = () => {
   const {
@@ -412,6 +413,7 @@ const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>()
     const loadLocation = async () => {
       const lat = await AsyncStorage.getItem("shop_lat");
       const lng = await AsyncStorage.getItem("shop_lng");
+// console.log(lat);
 
       if (lat && lng) {
         const latitude = parseFloat(lat);
@@ -461,24 +463,27 @@ const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>()
     });
   };
 
-  const onSubmit = async (data) => {
-    // console.log(data);
-    
-    const token = await AsyncStorage.getItem("authToken");
-    if (!token) return Alert.alert("Auth Error", "Please login again");
-    if (!marker) return Alert.alert("Location Missing", "Please select location");
+const onSubmit = async (data) => {
+  if (!marker) return Alert.alert("Location Missing", "Please select a location");
+
+  try {
+    const userId = await AsyncStorage.getItem("userId");
+    if (!userId) {
+      throw new Error("User ID not found in storage");
+    }
 
     const formData = new FormData();
     formData.append("shopname", data.shopName);
     formData.append("shopDescription", data.shopDescription);
     formData.append("shopAddress", data.shopAddress);
-    formData.append("building_name", data.buildingName);
+    formData.append("building_name", data.buildingName || "");
     formData.append("latitude", marker.latitude.toString());
     formData.append("longitude", marker.longitude.toString());
     formData.append("phone", data.phone);
     formData.append("email", data.email);
     formData.append("country_code", "+91");
     formData.append("is_open", data.is_open ? "1" : "0");
+    formData.append("owner_id", userId); // Add owner_id
 
     if (image) {
       formData.append("shopImage", {
@@ -488,43 +493,39 @@ const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>()
       });
     }
 
-    try {
-      const response = await axios.post(`${BASE_URL}/api/shops/create`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      // console.log(response.data);
-      
-//       if (response.status === 201) {
-//         Alert.alert("Success", "Shop created successfully!");
-//         await AsyncStorage.removeItem("shop_lat");
-//         await AsyncStorage.removeItem("shop_lng");
-//          await AsyncStorage.setItem("owner_id", response.data.owner_id.toString()); 
-//          await AsyncStorage.setItem("setupStep", "shopCreated");
-// navigation.replace("addCategoryScreen");
-        
-//       }
-if (response.status === 201) {
-  // Alert.alert("Success", "Shop created successfully!");
+    const response = await axiosClient.post("/api/shops/create", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+        Accept: "application/json",
+      },
+    });
 
-  await AsyncStorage.removeItem("shop_lat");
-  await AsyncStorage.removeItem("shop_lng");
-  // await AsyncStorage.setItem("owner_id", response.data.owner_id.toString());
-  await AsyncStorage.setItem("shop_id", response.data.shop_id?.toString() ?? ""); // ← if returned
+    if (response.status === 201) {
+      const { shop_id } = response.data;
+      if (!shop_id) {
+        throw new Error("Shop ID not returned from server");
+      }
 
-  await AsyncStorage.setItem("setupStep", "shopCreated");
-  await AsyncStorage.setItem("shopDetailsAdded", "true");
+      await AsyncStorage.multiRemove(["shop_lat", "shop_lng"]);
+      await AsyncStorage.setItem("shop_id", shop_id.toString());
+      await AsyncStorage.setItem("setupStep", "shopCreated");
+      await AsyncStorage.setItem("shopDetailsAdded", "true");
+      setShopId(Number(shop_id)); // Update AuthContext
 
-  navigation.replace("bottamTabScreen"); // Go to HomeScreen (via tab)
-}
-
-    } catch (err) {
-      console.log("Create shop error:", err.response?.data || err.message);
-      Alert.alert("Error", err?.response?.data?.message || "Something went wrong");
+      navigation.replace("bottamTabScreen");
     }
-  };
+  } catch (err: any) {
+    console.error("Shop creation error:", {
+      message: err.message,
+      response: err.response?.data,
+      status: err.response?.status,
+      request: err.request,
+    });
+    const errorMessage = err.response?.data?.message || "Failed to create shop. Please check your network and try again.";
+    Alert.alert("Error", errorMessage);
+  }
+};
+
 
   return (
     <ScrollView style={styles.container}>

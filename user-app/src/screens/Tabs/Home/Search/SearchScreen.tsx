@@ -28,6 +28,7 @@ import CommonSearchBar from "@/src/Common/CommonSearchBar";
 import CommonHeader from "@/src/Common/CommonHeader";
 import { hp, wp } from "@/src/assets/utils/responsive";
 import { useNavigation } from "@react-navigation/native";
+import axiosClient from "@/src/api/client";
 
 /* Types */
 type Shop = {
@@ -155,7 +156,7 @@ const SearchScreen: React.FC = () => {
     suggestCancelRef.current = source;
 
     try {
-      const res = await axios.get<{ suggestions?: Suggestion[] }>(
+      const res = await axiosClient.get<{ suggestions?: Suggestion[] }>(
         `${BASE_URL}/api/search/search-suggestions`,
         {
           params: { query: text.trim() },
@@ -202,7 +203,7 @@ const SearchScreen: React.FC = () => {
       }
 
       try {
-        const res = await axios.get(`${BASE_URL}/api/search/search`, {
+        const res = await axiosClient.get(`${BASE_URL}/api/search/search`, {
           params: { query: q, pageMenus: pageToUse, limitMenus },
           cancelToken: source.token,
           timeout: 10000,
@@ -229,7 +230,7 @@ const SearchScreen: React.FC = () => {
         const receivedMenus = normalized.menus?.length ?? 0;
         setHasMoreMenus(receivedMenus >= limitMenus);
       } catch (err: any) {
-        if (!axios.isCancel(err)) {
+        if (!axiosClient.isCancel(err)) {
           console.warn("Search error:", err.message || err);
           setError("Something went wrong. Please try again.");
         }
@@ -365,7 +366,7 @@ const SearchScreen: React.FC = () => {
       // Basic prefetch -> optional improvement: fetch menu detail so destination loads quick
       try {
         // Fire & forget prefetch (no blocking navigation)
-        axios.get(`${BASE_URL}/api/menu/${menuId}`, { timeout: 6000 }).catch(() => {});
+        axiosClient.get(`${BASE_URL}/api/menu/${menuId}`, { timeout: 6000 }).catch(() => {});
       } finally {
         navigation.navigate("menuDetailScreen", { menuId, menuName });
       }

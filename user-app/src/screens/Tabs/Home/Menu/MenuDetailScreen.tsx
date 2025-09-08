@@ -26,6 +26,7 @@ import { ParamListBase, useNavigation } from "@react-navigation/native";
 import { useDispatch, useSelector } from "react-redux";
 import { addToCartAsync, selectCartItems, updateCartItemAsync } from "@/src/Redux/Slice/cartSlice";
 import CartIconWithBadge from "@/src/components/CartIconBadge";
+import axiosClient from "@/src/api/client";
 
 /**
  * Optional: For production, consider using `react-native-fast-image`
@@ -157,8 +158,8 @@ useEffect(() => {
       cancelRef.current?.cancel("new request");
       cancelRef.current = axios.CancelToken.source();
 
-      const res = await axios.get(`${BASE_URL}/api/menu/${menuId}`, {
-        headers: tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : undefined,
+      const res = await axiosClient.get(`${BASE_URL}/api/menu/${menuId}`, {
+        // headers: tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : undefined,
         cancelToken: cancelRef.current.token,
         timeout: 15000,
       });
@@ -178,7 +179,7 @@ useEffect(() => {
         }
       }
     } catch (err: any) {
-      if (!axios.isCancel(err)) {
+      if (!axiosClient.isCancel(err)) {
         const message = err?.response?.data?.message ?? err.message ?? "Failed to load menu";
         console.warn("fetchMenu error:", message, err?.response?.data ?? err);
         if (isMountedRef.current) setError(message);

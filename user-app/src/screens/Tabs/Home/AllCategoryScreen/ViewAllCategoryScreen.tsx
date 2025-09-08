@@ -30,6 +30,7 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-n
 import CommonHeader from "@/src/Common/CommonHeader";
 import CommonSearchBar from "@/src/Common/CommonSearchBar";
 import { ParamListBase, useNavigation } from "@react-navigation/native";
+import axiosClient from "@/src/api/client";
 
 /** --- Types --- **/
 type MenuItem = {
@@ -128,7 +129,7 @@ const ViewAllCategoryScreen = () => {
   }, [query]);
 
   const tokenRef = useRef<string | null>(null);
-  const cancelSourceRef = useRef(axios.CancelToken.source());
+  const cancelSourceRef = useRef(axiosClient.CancelToken.source());
 
   // selection (for blue border like your design)
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(
@@ -155,14 +156,14 @@ const ViewAllCategoryScreen = () => {
         if (tokenRef.current === null) {
           await loadToken();
         }
-        cancelSourceRef.current = axios.CancelToken.source();
+        cancelSourceRef.current = axiosClient.CancelToken.source();
 
-        const res = await axios.get(
+        const res = await axiosClient.get(
           `${BASE_URL}/api/category/categories-with-menus`,
           {
-            headers: tokenRef.current
-              ? { Authorization: `Bearer ${tokenRef.current}` }
-              : undefined,
+            // headers: tokenRef.current
+            //   ? { Authorization: `Bearer ${tokenRef.current}` }
+            //   : undefined,
             cancelToken: cancelSourceRef.current.token,
             timeout: 15000,
           }
@@ -175,7 +176,7 @@ const ViewAllCategoryScreen = () => {
         
         setCategories(data);
       } catch (err: any) {
-        if (!axios.isCancel(err)) {
+        if (!axiosClient.isCancel(err)) {
           console.warn("fetchCategories error:", err?.message ?? err);
         }
       } finally {
@@ -200,7 +201,7 @@ const ViewAllCategoryScreen = () => {
     setRefreshing(true);
     // cancel any running request and create new token
     cancelSourceRef.current.cancel("User initiated refresh");
-    cancelSourceRef.current = axios.CancelToken.source();
+    cancelSourceRef.current = axiosClient.CancelToken.source();
     fetchCategories(true);
   }, [fetchCategories]);
 

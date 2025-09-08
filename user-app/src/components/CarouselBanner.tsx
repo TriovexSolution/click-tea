@@ -8,6 +8,7 @@ import {
   Dimensions,
   TouchableOpacity,
 } from "react-native";
+import { hp } from "../assets/utils/responsive";
 
 const { width } = Dimensions.get("window");
 
@@ -79,7 +80,7 @@ const styles = StyleSheet.create({
   },
   bannerImage: {
     width: width - 40,
-    height: 180,
+    height: hp(20),
     borderRadius: 12,
     marginHorizontal: 20,
     resizeMode: "cover",

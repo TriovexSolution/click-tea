@@ -2,9 +2,15 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
+// const getFolderFromRoute = (req) => {
+//   if (req.originalUrl.includes("/category")) return "uploads/categories/";
+//   if (req.originalUrl.includes("/menu")) return "uploads/menus/";
+//   return "uploads/shops/";
+// };
 const getFolderFromRoute = (req) => {
   if (req.originalUrl.includes("/category")) return "uploads/categories/";
   if (req.originalUrl.includes("/menu")) return "uploads/menus/";
+  if (req.originalUrl.includes("/user")) return "uploads/users/";  // ✅ for user profile images
   return "uploads/shops/";
 };
 

@@ -17,6 +17,7 @@ import { hp, wp } from "@/src/assets/utils/responsive";
 import theme from "@/src/assets/colors/theme";
 import CommonHeader from "@/src/Common/CommonHeader";
 import { timeAgo } from "@/src/assets/utils/timeAgo";
+import axiosClient from "@/src/api/client";
 
 // =======================
 // Helpers
@@ -80,15 +81,16 @@ const OrderDetailsScreen = () => {
       setLoading(true);
       const token = await AsyncStorage.getItem("authToken");
 
-      const res = await axios.get(`${BASE_URL}/api/orders/${orderId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      const res = await axiosClient.get(`${BASE_URL}/api/orders/${orderId}`, {
+        // headers: token ? { Authorization: `Bearer ${token}` } : {},
         signal: controller.signal,
         timeout: 15000,
       });
+// console.log(res.data);
 
       setOrder(res.data ?? {});
     } catch (err: any) {
-      if (err?.name === "CanceledError" || axios.isCancel?.(err)) return;
+      if (err?.name === "CanceledError" || axiosClient.isCancel?.(err)) return;
       console.error("❌ Fetch error:", err?.response?.data ?? err);
       setError("Failed to load order details.");
     } finally {

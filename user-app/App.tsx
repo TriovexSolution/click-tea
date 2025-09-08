@@ -123,13 +123,11 @@ const App = () => {
             <AddressProvider>
               <AuthProvider>
                 <BottomSheetModalProvider>
-                    <AppServices>
                   {/* <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
                     <StatusBar hidden />
                     <StackNavigatorScreens />
                   </SafeAreaView> */}
                   <RootApp/>
-                  </AppServices>
                 </BottomSheetModalProvider>
               </AuthProvider>
             </AddressProvider>

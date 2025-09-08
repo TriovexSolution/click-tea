@@ -83,6 +83,8 @@ import { ParamListBase, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
+import { fetchUserProfile } from "@/src/Redux/slice/profileSlice";
+import { store } from "@/src/Redux/store";
 
 const OnBoardScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>();
@@ -230,7 +232,6 @@ const pressMe = async () => {
 
   try {
     const { status } = await Location.getForegroundPermissionsAsync();
-
     if (status !== "granted") {
       setLoading(false);
       Alert.alert("Permission Required", "Please enable location permission.");
@@ -253,42 +254,33 @@ const pressMe = async () => {
     await AsyncStorage.setItem("shop_lng", location.coords.longitude.toString());
 
     const token = await AsyncStorage.getItem("authToken");
-    // console.log(token);
-    
+    const shopId = await AsyncStorage.getItem("shop_id");
+
     if (!token) {
       setLoading(false);
       return navigation.replace("signInScreen");
     }
 
-//     const owner_id = await AsyncStorage.getItem("owner_id");
-// console.log(owner_id,"owner");
-const shop_id = await AsyncStorage.getItem("shop_id");
-console.log(shop_id);
+    // Fetch user profile to get role
+    const profile = await store.dispatch(fetchUserProfile()).unwrap();
+    console.log("Profile:", profile);
 
-if (!shop_id) {
-  return navigation.navigate("enterShopDetailScreen");
-}
+    if (profile.role === "shop_owner" && !shopId) {
+      setLoading(false);
+      return navigation.navigate("enterShopDetailScreen");
+    }
 
     setLoading(false);
-
-    // 🔁 First time user → go to shop detail
-    // if (!owner_id) {
-    //   return navigation.navigate("enterShopDetailScreen");
-    // }
-
-    // ✅ Otherwise always go to HomeScreen (setup modal will handle next steps)
     return navigation.reset({
       index: 0,
-      routes: [{ name: "bottamTabScreen" }], 
+      routes: [{ name: "bottamTabScreen" }],
     });
-
   } catch (err) {
     console.log("pressMe error:", err);
     setLoading(false);
     Alert.alert("Error", "Something went wrong.");
   }
 };
-
 
 
   return (

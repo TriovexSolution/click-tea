@@ -39,6 +39,7 @@ import Animated, {
 // gradient + icons
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import axiosClient from "@/src/assets/api/client";
 
 /* ----- Portion options (labels only) ----- */
 const PORTION_GROUPS = {
@@ -136,8 +137,8 @@ const AddMenuScreen: React.FC = () => {
       setLoadingCategories(true);
       const token = await AsyncStorage.getItem("authToken");
       try {
-        const res = await axios.get(`${BASE_URL}/api/category/my-categories`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        const res = await axiosClient.get(`${BASE_URL}/api/category/me`, {
+          // headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         });
         const data = Array.isArray(res.data) ? res.data : [];
         setCategoriesRaw(data);
@@ -293,7 +294,7 @@ const AddMenuScreen: React.FC = () => {
     if (!selectedCategoryId) return Alert.alert("Validation", "Please select category.");
 
     const variantsToSend = builtVariants.map((v) => ({ label: v.label, price: v.price }));
-
+ const shopId = await AsyncStorage.getItem("shopId")
     setSubmitting(true);
     try {
       const token = await AsyncStorage.getItem("authToken");
@@ -305,6 +306,9 @@ const AddMenuScreen: React.FC = () => {
       formData.append("isAvailable", "1");
       formData.append("variants", JSON.stringify(variantsToSend));
 
+    if (shopId) {
+      formData.append("shopId", shopId); // send shopId if you have it
+    }
       if (image) {
         formData.append("imageUrl", {
           uri: image.uri,
@@ -313,10 +317,11 @@ const AddMenuScreen: React.FC = () => {
         } as any);
       }
 
-      const resp = await axios.post(`${BASE_URL}/api/menu/create`, formData, {
+      const resp = await axiosClient.post('/api/menu', formData, {
         headers: {
-          Authorization: token ? `Bearer ${token}` : "",
+          // Authorization: token ? `Bearer ${token}` : "",
           "Content-Type": "multipart/form-data",
+          Accept:"application/json"
         },
       });
       // console.log("[DEBUG] add menu response:", resp?.data);

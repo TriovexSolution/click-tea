@@ -42,7 +42,7 @@ const db = require("../config/db");
 // };
 const addToCart = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.userId;
+    const userId = req.user?.userId || req.body.userId;
     const { shopId, menuId, variantId, quantity = 1, addons, notes } = req.body;
 
     if (!userId || !shopId || !menuId) {
@@ -149,7 +149,7 @@ const addToCart = async (req, res) => {
 
 const getUserCartByShop = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const shopId = req.params.shopId;
 
     const [items] = await db.query(
@@ -296,7 +296,7 @@ const saveForLater = async (req, res) => {
 
 const clearCart = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     await db.query("DELETE FROM cart_items WHERE userId = ? AND status = 'active'", [userId]);
     res.status(200).json({ message: "Cart cleared" });
   } catch (err) {
@@ -307,7 +307,7 @@ const clearCart = async (req, res) => {
 const deleteCartItem = async (req, res) => {
   try {
     const cartId = req.params.cartId;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     const [result] = await db.query(
       "DELETE FROM cart_items WHERE cartId = ? AND userId = ?",

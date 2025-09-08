@@ -38,6 +38,7 @@ export interface shopDataType {
 
 
 export interface cartDataType {
+variantId: null;
 addons:any;
 cartId:number;
 imageUrl:number;

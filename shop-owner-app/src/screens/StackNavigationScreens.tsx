@@ -11,6 +11,7 @@ import BottomTabs from './Tabs/BottomTabs'
 import AddCategoryScreen from './Tabs/Home/category/AddcategoryScreen'
 import AddMenuScreen from './Tabs/Home/menu/AddMenuScreen'
 import MenuItemScreen from './Tabs/Home/menu/MenuItemsScreen'
+import ManageBestSellerScreen from './Tabs/Home/BestSeller/ManageBestSellerScreen'
 
 
 const StackNavigationScreens = () => {
@@ -28,6 +29,7 @@ const StackNavigationScreens = () => {
         <Stack.Screen name='addCategoryScreen' component={AddCategoryScreen}/>
         <Stack.Screen name='addMenuScreen' component={AddMenuScreen}/>
         <Stack.Screen name='menuItemsScreen' component={MenuItemScreen} />
+        <Stack.Screen name='manageBestSellerScreen' component={ManageBestSellerScreen} />
     </Stack.Navigator>
 </NavigationContainer>
   )
