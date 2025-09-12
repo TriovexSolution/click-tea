@@ -150,6 +150,8 @@ const addToCart = async (req, res) => {
 const getUserCartByShop = async (req, res) => {
   try {
     const userId = req.user.userId;
+    // console.log(userId);
+    
     const shopId = req.params.shopId;
 
     const [items] = await db.query(

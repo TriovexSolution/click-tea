@@ -4,6 +4,7 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BASE_URL } from "@/api";
 import type { RootState } from "../store";
+import { useSelector } from "react-redux";
 
 export interface CartItem {
   cartId?: number;
@@ -28,6 +29,8 @@ interface CartState {
 const initialState: CartState = { items: [], loading: false, error: null };
 
 const authHeader = async () => {
+
+  
   const token = await AsyncStorage.getItem("authToken");
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
@@ -42,6 +45,8 @@ export const addToCartAsync = createAsyncThunk<
   async (data, { rejectWithValue, dispatch }) => {
     try {
       const headers = await authHeader();
+      console.log(headers,"headers");
+      
       const res = await axios.post(`${BASE_URL}/api/cart/add`, data, { headers });
       if (res.data?.cartItem) return res.data.cartItem as CartItem;
       if (res.data?.cartId) {
@@ -80,6 +85,8 @@ export const fetchCartAsync = createAsyncThunk<CartItem[], { shopId: number }, {
     try {
       const headers = await authHeader();
       const res = await axios.get(`${BASE_URL}/api/cart/${shopId}`, { headers });
+      // console.log(res.data,"res");
+      
       if (Array.isArray(res.data)) return res.data;
       if (Array.isArray(res.data?.items)) return res.data.items;
       if (Array.isArray(res.data?.data)) return res.data.data;

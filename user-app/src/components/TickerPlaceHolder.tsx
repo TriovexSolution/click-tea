@@ -1,4 +1,3 @@
-// src/components/TickerPlaceHolder.tsx
 import React, { useCallback, useEffect, useRef } from "react";
 import {
   View,
@@ -17,30 +16,30 @@ import Animated, {
 import { hp } from "@/src/assets/utils/responsive";
 
 type Props = {
-  words: string[]; // required list of words
-  prefix?: string; // "Try" / "Search for"
-  itemHeight?: number; // px for each row (defaults to approx 2.2% screen height)
-  interval?: number; // ms between switches
-  duration?: number; // animation duration ms
-  paused?: boolean; // externally pause rotation
-  textStyle?: TextStyle; // optional overrides
-  containerStyle?: ViewStyle; // optional overrides
-  onChange?: (word: string, index: number) => void; // emits when visible word changes
+  words: string[];
+  prefix?: string;
+  itemHeight?: number;
+  interval?: number;
+  duration?: number;
+  paused?: boolean;
+  textStyle?: TextStyle;
+  containerStyle?: ViewStyle;
+  onChange?: (word: string, index: number) => void;
 };
 
 /**
- * Production-ready TickerPlaceHolder
+ * CommonTicker
  * - responsive by default (uses hp)
  * - respects reduce-motion accessibility
  * - pauses when app is backgrounded or paused prop is true
  * - minimal re-renders (memoized)
  * - pointerEvents none (visual only)
  */
-const TickerPlaceHolder: React.FC<Props> = React.memo(
+const CommonTicker: React.FC<Props> = React.memo(
   ({
     words,
-    prefix = "Search for",
-    itemHeight = Math.round(hp(2.2)), // default responsive row height
+    prefix = "",
+    itemHeight = Math.round(hp(2.2)),
     interval = 2500,
     duration = 420,
     paused = false,
@@ -50,13 +49,11 @@ const TickerPlaceHolder: React.FC<Props> = React.memo(
   }: Props) => {
     const translateY = useSharedValue(0);
     const idxRef = useRef(0);
-    const intervalRef = useRef<number | null>(null);
+    const intervalRef = useRef<any>(null);
     const isReduceMotionRef = useRef(false);
     const appStateRef = useRef(AppState.currentState);
 
     const wordsLength = Array.isArray(words) ? words.length : 0;
-
-    // compute sensible fontSize from itemHeight (keeps text vertically centered)
     const fontSize = Math.round(itemHeight * 0.78);
 
     const emitCurrent = useCallback(() => {
@@ -67,14 +64,12 @@ const TickerPlaceHolder: React.FC<Props> = React.memo(
     }, [onChange, words, wordsLength]);
 
     useEffect(() => {
-      // reduce-motion preference
       AccessibilityInfo.isReduceMotionEnabled().then((v) => {
         isReduceMotionRef.current = !!v;
       });
 
       const sub = AppState.addEventListener?.("change", (next) => {
         appStateRef.current = next;
-        // when backgrounded clear interval (we'll re-create on resume via effect)
         if (next !== "active" && intervalRef.current) {
           clearInterval(intervalRef.current);
           intervalRef.current = null;
@@ -90,7 +85,7 @@ const TickerPlaceHolder: React.FC<Props> = React.memo(
       };
     }, []);
 
-    // reset when words length changes (avoid out of bounds)
+    // reset when words length changes
     useEffect(() => {
       idxRef.current = 0;
       translateY.value = withTiming(0, { duration: 120 });
@@ -99,7 +94,6 @@ const TickerPlaceHolder: React.FC<Props> = React.memo(
     }, [wordsLength]);
 
     useEffect(() => {
-      // do not start if no words, paused, reduce-motion or app backgrounded
       if (
         wordsLength === 0 ||
         paused ||
@@ -113,18 +107,16 @@ const TickerPlaceHolder: React.FC<Props> = React.memo(
         return;
       }
 
-      // safe min interval
       const safeInterval = Math.max(500, interval);
 
       if (intervalRef.current == null) {
-        intervalRef.current = (setInterval(() => {
+        intervalRef.current = setInterval(() => {
           idxRef.current = (idxRef.current + 1) % wordsLength;
           translateY.value = withTiming(-idxRef.current * itemHeight, {
             duration,
           });
-          // emit visible word
           emitCurrent();
-        }, safeInterval) as unknown) as number;
+        }, safeInterval);
       }
 
       return () => {
@@ -149,10 +141,7 @@ const TickerPlaceHolder: React.FC<Props> = React.memo(
       >
         <Animated.View style={[animatedStyle]}>
           {words.map((w, i) => (
-            <View
-              key={i}
-              style={{ height: itemHeight, justifyContent: "center" }}
-            >
+            <View key={i} style={{ height: itemHeight, justifyContent: "center" }}>
               <Text
                 numberOfLines={1}
                 style={[
@@ -175,10 +164,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     justifyContent: "center",
   },
-  text: {
-    fontSize: 14,
-    color: "#7f7a8b",
-  },
 });
 
-export default TickerPlaceHolder;
+CommonTicker.displayName = "CommonTicker";
+
+export default CommonTicker;

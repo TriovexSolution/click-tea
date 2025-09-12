@@ -34,6 +34,8 @@ import { useFonts } from "expo-font";
 const RootApp = () => {
   const dispatch = useDispatch();
   const profile = useSelector((state: RootState) => state.profile.data);
+  // console.log(profile,"RootApp");
+  
   const { isLoading: authRestoring, isLoggedIn } = useAuth();
   const [fontsLoaded] = useFonts({
     "Oswald-Bold": require("./src/assets/fonts/Oswald-Bold.ttf"),

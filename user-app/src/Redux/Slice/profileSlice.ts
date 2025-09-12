@@ -146,6 +146,8 @@ export const fetchUserProfile = createAsyncThunk<
       role: d.role ?? "user",
       userImage: d.userImage ?? d.avatar ?? null,
     };
+    // console.log(safe);
+    
     return safe;
   } catch (err: any) {
     if (axiosClient.isCancel?.(err) || err?.message === "thunk aborted by caller")
