@@ -29,6 +29,7 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-n
 import { ParamListBase, useNavigation } from "@react-navigation/native";
 import CommonHeader from "@/src/Common/CommonHeader";
 import axiosClient from "@/src/api/client";
+import CommonStatusHeader from "@/src/Common/CommonStatusHeader";
 
 // --------------------- Types ---------------------
 type MenuItem = {
@@ -279,9 +280,10 @@ const extractMenus = (resData: any, categoryIdLocal?: string): MenuItem[] => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      {/* <StatusBar barStyle="dark-content" backgroundColor="#fff" /> */}
       {/* Header */}
-      <CommonHeader title={categoryName ?? "Category"} />
+      {/* <CommonHeader title={categoryName ?? "Category"}  /> */}
+      <CommonStatusHeader title={categoryName ?? "Category"} bgColor="#FBCEB1"/>
 
       {/* Search */}
       <View style={styles.searchContainer}>
@@ -358,10 +360,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#F6F6F6",
-    marginHorizontal: wp(3),
+    marginHorizontal: wp(5),
     borderRadius: wp(2),
     paddingHorizontal: wp(3),
-    marginTop: hp(1),
+    marginTop: hp(2),
     height: hp(5.4),
   },
   searchInput: {

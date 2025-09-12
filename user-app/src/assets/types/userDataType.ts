@@ -76,3 +76,34 @@ export interface userProfileDataType{
   userPhone:string;
   username:string;
 }
+export interface BestSellerRow {
+  menuId: number;
+  menuName?: string;
+  price?: number | string | null;
+  imageUrl?: string | null;
+  shopId?: number | null;
+  shopname?: string | null;
+  shopImage?: string | null;
+  // optional flag
+  is_bestseller?: number | string | boolean;
+  is_bestsellers?: number | string | boolean;
+  // Other possible flags / legacy names
+  [k: string]: any;
+}
+
+export interface ShopGrouped {
+  shopId: number;
+  shopName: string;
+  shopImage?: string | null;
+  bestMenus: BestSellerRow[];
+}
+
+/** payload used by addToCart thunk */
+export interface CartPayload {
+  shopId: number;
+  menuId: number;
+  quantity?: number;
+  variantId?: number | null;
+  addons?: any[];
+  notes?: string;
+}

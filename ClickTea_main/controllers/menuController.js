@@ -782,6 +782,130 @@ const getMenuById = asyncHandler(async (req, res) => {
 
   res.json({ data: menu });
 });
+// menuController.js (add or replace function)
+// controllers/menuController.js
+
+const getTeaCoffeeNearbyGrouped = asyncHandler(async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ message: "Invalid or missing lat/lng" });
+  }
+
+  const radiusKm = Math.max(0.1, Number(req.query.radius ?? 1)); // default 1km
+  const limit = Math.min(Math.max(1, Number(req.query.limit ?? 20)), 100);
+  const offset = Math.max(0, Number(req.query.offset ?? 0));
+
+  const conn = await db.getConnection();
+  try {
+    const query = `
+      SELECT
+        s.id AS shopId,
+        s.shopname AS shopName,
+        s.shopImage,
+        s.latitude,
+        s.longitude,
+        (
+          6371 * ACOS(
+            COS(RADIANS(?)) * COS(RADIANS(s.latitude)) *
+            COS(RADIANS(s.longitude) - RADIANS(?)) +
+            SIN(RADIANS(?)) * SIN(RADIANS(s.latitude))
+          )
+        ) AS distance_km,
+        JSON_ARRAYAGG(
+          JSON_OBJECT(
+            'menuId', m.menuId,
+            'menuName', m.menuName,
+            'menuImage', m.imageUrl,
+            'price', m.price,
+            'qty', mv.totalStock
+          )
+        ) AS menus
+      FROM shops s
+      JOIN menus m ON m.shopId = s.id
+      JOIN categories c ON m.categoryId = c.categoryId
+      LEFT JOIN (
+        SELECT menuId, SUM(COALESCE(stockQty,0)) AS totalStock
+        FROM menu_variants
+        WHERE isAvailable = 1
+        GROUP BY menuId
+      ) mv ON mv.menuId = m.menuId
+      WHERE
+        s.is_open = 1
+        AND m.status = 'active'
+        AND m.isAvailable = 1
+        AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+        AND (
+          LOWER(c.categoryName) LIKE '%tea%'
+          OR LOWER(c.categoryName) LIKE '%coffee%'
+        )
+      GROUP BY s.id, s.shopname, s.shopImage, s.latitude, s.longitude
+      HAVING distance_km <= ?
+      ORDER BY distance_km ASC
+      LIMIT ? OFFSET ?;
+    `;
+
+    const params = [lat, lng, lat, radiusKm, limit, offset];
+    const [rows] = await conn.query(query, params);
+
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+
+    const data = rows.map((r) => {
+      let menus = [];
+      try {
+        if (typeof r.menus === "string") {
+          menus = JSON.parse(r.menus);
+        } else if (Array.isArray(r.menus)) {
+          menus = r.menus;
+        }
+      } catch (e) {
+        menus = [];
+      }
+
+      // fix image URL
+      menus = menus.map((m) => ({
+        ...m,
+        menuImage: m.menuImage
+          ? `${baseUrl}/uploads/menus/${m.menuImage}`
+          : null,
+      }));
+
+      return {
+        shopId: r.shopId,
+        shopName: r.shopName,
+        shopImage: r.shopImage
+          ? `${baseUrl}/uploads/shops/${r.shopImage}`
+          : null,
+        latitude: Number(r.latitude),
+        longitude: Number(r.longitude),
+        distanceKm: Number(r.distance_km),
+        distanceMeters: Math.round(Number(r.distance_km) * 1000),
+        menus,
+      };
+    });
+
+    res.json({
+      data,
+      meta: {
+        count: data.length,
+        limit,
+        offset,
+        radiusKm,
+      },
+    });
+  } catch (err) {
+    console.error("Error in getTeaCoffeeNearbyGrouped:", err);
+    res.status(500).json({ message: "Server error" });
+  } finally {
+    try {
+      conn.release();
+    } catch (e) {}
+  }
+});
+
+
+
+
 
 module.exports = {
   createMenu,
@@ -791,5 +915,6 @@ module.exports = {
   deleteMenu,
   getMenusByShopId,
   getMenusByCategory,
-  getMenuById
+  getMenuById,
+  getTeaCoffeeNearbyGrouped 
 };

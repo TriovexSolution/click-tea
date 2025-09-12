@@ -108,6 +108,7 @@ import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import AppServices from "./src/services/AppServices";
 import RootApp from "./RootApp";
+import OfflineNotice from "./src/components/OfflineNotice";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 1000 * 60 },
@@ -127,6 +128,7 @@ const App = () => {
                     <StatusBar hidden />
                     <StackNavigatorScreens />
                   </SafeAreaView> */}
+                    {/* <OfflineNotice /> */}
                   <RootApp/>
                 </BottomSheetModalProvider>
               </AuthProvider>

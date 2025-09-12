@@ -7,7 +7,8 @@ const {
   getMyBestSellers,
   deleteBestSeller,
   getBestSellersByShop,
-  getAllBestSellers
+  getAllBestSellers,
+  setBestSellersBulk
 } = require("../controllers/bestController");
 const { verifyToken, authorizeRoles } = require("../middleware/authMiddleware");
 const validate = require("../middleware/validate");
@@ -48,5 +49,13 @@ router.get(
   getBestSellersByShop
 );
 router.get("/all", getAllBestSellers);
+router.post(
+  "/bulk",
+  verifyToken,
+  authorizeRoles("shop_owner"),
+  [body("menuIds").isArray({ min: 1 }).withMessage("menuIds must be an array")],
+  validate,
+  setBestSellersBulk
+);
 
 module.exports = router;

@@ -25,9 +25,10 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    marginHorizontal: wp(4),
+    paddingHorizontal: wp(3),
     marginTop: hp(2),
     justifyContent: "space-between",
+    
   },
   backBtn: {
     // paddingRight: wp(3),

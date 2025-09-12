@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
   },
   bannerImage: {
     width: width - 40,
-    height: hp(20),
+    height: hp(18),
     borderRadius: 12,
     marginHorizontal: 20,
     resizeMode: "cover",

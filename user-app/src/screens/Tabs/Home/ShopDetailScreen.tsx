@@ -10,6 +10,7 @@ import {
   Image,
   Modal,
   TextInput,
+  StatusBar,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -326,6 +327,7 @@ const ShopDetailScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <View style={styles.header}>
         <Pressable
           onPress={() => navigation.goBack()}

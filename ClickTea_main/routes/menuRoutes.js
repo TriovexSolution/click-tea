@@ -77,6 +77,7 @@ const {
   getMenusByShopId,
   getMenusByCategory,
   getMenuById,
+  getTeaCoffeeNearbyGrouped
 } = require("../controllers/menuController");
 
 const { verifyToken, authorizeRoles } = require("../middleware/authMiddleware");
@@ -137,7 +138,7 @@ router.delete(
   validate,
   deleteMenu
 );
-
+router.get("/nearby/tea-coffee", getTeaCoffeeNearbyGrouped);
 // ✅ Public routes
 router.get("/shop/:shopId", [param("shopId").isInt()], validate, getMenusByShopId);
 router.get("/category/:categoryId", [param("categoryId").isInt()], validate, getMenusByCategory);

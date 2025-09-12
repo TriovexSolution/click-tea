@@ -156,6 +156,7 @@ import CoinWalletScreen from "./Tabs/Profile/CoinWallet/CoinWalletScreen";
 import ForgotPasswordScreen from "./auth/Password/ForgotPasswordScreen";
 import ResetPasswordScreen from "./auth/Password/ResetPasswordScreen";
 import EditProfileScreen from "./Tabs/Profile/EditProfileScreen";
+import TeaAndCoffeeScreen from "./Tabs/Home/Menu/TeaAndCoffeeScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -187,6 +188,7 @@ const StackNavigatorScreens: React.FC = () => {
             <Stack.Screen name="locationScreen" component={LocationScreen} />
             <Stack.Screen name="serviceNotAvailable" component={ServiceNotAvailableScreen} />
             <Stack.Screen name="nearestShopScreen" component={NearestShopScreen} />
+            <Stack.Screen name="teaAndCoffeeScreen" component={TeaAndCoffeeScreen} />
             <Stack.Screen name="shopDetailScreen" component={ShopDetailScreen} />
             <Stack.Screen name="cartScreen" component={CartScreen} />
             <Stack.Screen name="changeAddressScreen" component={ChangeAddressScreen} />
