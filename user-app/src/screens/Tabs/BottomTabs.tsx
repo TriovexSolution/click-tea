@@ -1,35 +1,55 @@
-import React from 'react';
+
+import React from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Platform,
-} from 'react-native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Ionicons } from '@expo/vector-icons';
+  Image,
+} from "react-native";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { Ionicons } from "@expo/vector-icons";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withTiming,
-} from 'react-native-reanimated';
+} from "react-native-reanimated";
+import { useSelector } from "react-redux";
 
-
-import theme from '@/src/assets/colors/theme';
-import { hp, wp } from '@/src/assets/utils/responsive';
-import HomeScreen from './Home/HomeScreen';
-import OrdersScreen from './Orders/OrdersScreen';
-import ProfileScreen from './Profile/ProfileScreen';
+import theme from "@/src/assets/colors/theme";
+import { hp, wp } from "@/src/assets/utils/responsive";
+import HomeScreen from "./Home/HomeScreen";
+import OrdersScreen from "./Orders/OrdersScreen";
+import ProfileScreen from "./Profile/ProfileScreen";
+import CartScreen from "./Cart/CartScreen";
+import { selectCartCount } from "@/src/Redux/Slice/cartSlice";
+import CoinWalletScreen from "./Profile/CoinWallet/CoinWalletScreen";
 
 const Tab = createBottomTabNavigator();
 
+// ✅ Precalculate constants
+const TAB_HEIGHT = hp(8);
+const TAB_MARGIN = wp(4);
+const FLOAT_SIZE = wp(16);
+const FLOAT_RADIUS = FLOAT_SIZE / 2;
+const FLOAT_OFFSET = hp(3.5);
+
+// Floating center button (if needed later)
 const CustomTabBarButton = ({ children, onPress }: any) => {
   const scale = useSharedValue(1);
   const rotate = useSharedValue(0);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }, { rotate: `${rotate.value}deg` }],
+    transform: [
+      { scale: scale.value },
+      { rotate: `${rotate.value}deg` },
+      { translateY: -FLOAT_OFFSET },
+    ],
+    width: FLOAT_SIZE,
+    height: FLOAT_SIZE,
+    borderRadius: FLOAT_RADIUS,
   }));
 
   const handlePress = () => {
@@ -51,58 +71,105 @@ const CustomTabBarButton = ({ children, onPress }: any) => {
   );
 };
 
+// ✅ Wrapper for tabBarIcon (safe for hooks)
+const TabBarIcon = ({ route, focused }: { route: any; focused: boolean }) => {
+  const cartCount = useSelector(selectCartCount);
+
+  let iconName = "";
+  let label = "";
+
+  switch (route.name) {
+    case "Home":
+      iconName = "home-outline";
+      label = "Home";
+      break;
+    case "Cart":
+      iconName = "cart-outline";
+      label = "Cart";
+      break;
+    case "Orders":
+      iconName = "receipt-outline";
+      label = "Orders";
+      break;
+    case "Profile":
+      iconName = "person-outline";
+      label = "Profile";
+      break;
+  }
+
+  return (
+    <View style={focused ? styles.focusedTab : styles.defaultTab}>
+      <Ionicons
+        name={iconName}
+        size={hp(2.8)}
+        color={focused ? theme.PRIMARY_COLOR : "#ccc"}
+      />
+
+      {/* ✅ Badge for Cart */}
+      {route.name === "Cart" && cartCount > 0 && (
+        console.log(cartCount,"CarrtCaount"),
+        
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{cartCount}</Text>
+        </View>
+      )}
+
+      {focused && <Text style={styles.label}>{label}</Text>}
+    </View>
+  );
+};
+
 const BottomTabs = () => {
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: false,
-        tabBarStyle: styles.tabBarStyle,
+        tabBarStyle: [
+          styles.tabBarStyle,
+         
+        ],
         tabBarButton: (props) => (
           <TouchableOpacity
             {...props}
             activeOpacity={1}
             style={{
-              justifyContent: 'center',
-              alignItems: 'center',
+              justifyContent: "center",
+              alignItems: "center",
               marginTop: hp(0.5),
             }}
           />
         ),
-        tabBarIcon: ({ focused }) => {
-          let iconName = '';
-          let label = '';
-
-          switch (route.name) {
-            case 'Home':
-              iconName = 'home-outline';
-              label = 'Home';
-              break;
-            case 'Orders':
-              iconName = 'receipt-outline';
-              label = 'Orders';
-              break;
-            case 'Profile':
-              iconName = 'person-outline';
-              label = 'Profile';
-              break;
-          }
-
-          return (
-            <View style={focused ? styles.focusedTab : styles.defaultTab}>
-              <Ionicons
-                name={iconName}
-                size={hp(2.6)}
-                color={focused ? '#fff' : '#ccc'}
-              />
-              {focused && <Text style={styles.label}>{label}</Text>}
-            </View>
-          );
-        },
+       tabBarIcon: ({ focused }) => {
+      if (route.name === "Coin") {
+        return (
+          <Image
+            source={require("@/src/assets/images/12.png")}
+            style={{
+              width: hp(2.8),
+              height: hp(2.8),
+              // tintColor: focused ? theme.PRIMARY_COLOR : "#ccc", // optional tint
+              // resizeMode: "contain",
+            }}
+          />
+        );
+      }
+      return <TabBarIcon route={route} focused={focused} />;
+    },
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen
+        name="Cart"
+        component={CartScreen}
+        options={{
+          // ✅ Hide bottom tab inside Cart
+          // tabBarStyle: { display: "none" },
+        }}
+      />
       <Tab.Screen name="Orders" component={OrdersScreen} />
+      <Tab.Screen name="Coin" component={CoinWalletScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
@@ -112,62 +179,76 @@ export default BottomTabs;
 
 const styles = StyleSheet.create({
   tabBarStyle: {
-    position: 'absolute',
-    bottom: hp(1.5),
-    left: wp(4),
-    right: wp(4),
-    height: hp(7),
-    borderRadius: 20,
-    backgroundColor: theme.PRIMARY_COLOR,
-    paddingBottom: Platform.OS === 'android' ? hp(0.6) : 0,
-    paddingTop: hp(1),
+    position: "absolute",
+    bottom: hp(0),
+    left: TAB_MARGIN,
+    right: TAB_MARGIN,
+    height: TAB_HEIGHT,
+    backgroundColor: "white",
+    paddingBottom: Platform.OS === "android" ? hp(0.6) : 0,
+    paddingTop: hp(1.4),
     elevation: 10,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 6,
-    borderTopWidth: 0,
-    marginHorizontal:wp(4),
+    // borderTopWidth: 2,
+    paddingVertical: 25,
+    // borderColor:theme.PRIMARY_COLOR
   },
   floatingButton: {
-    top: -hp(3.5),
-    width: wp(16),
-    height: wp(16),
-    borderRadius: wp(8),
+    top: -FLOAT_OFFSET,
     borderWidth: 3,
     borderColor: theme.PRIMARY_COLOR,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     elevation: 10,
-    shadowColor: '#943400',
+    shadowColor: "#943400",
     shadowOpacity: 0.25,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 10,
   },
   centerTouchable: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   focusedTab: {
     width: wp(14),
-    height: hp(6 ),
+    height: hp(6),
     borderRadius: 12,
-    backgroundColor: '#ffffff30',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#ffffff30",
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: hp(0.3),
-    marginTop:hp(0.5)
+    marginTop: hp(0.9),
   },
   defaultTab: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     height: hp(6),
   },
   label: {
-    color: '#fff',
+    color: theme.PRIMARY_COLOR,
     fontSize: hp(1.3),
-    fontWeight: '500',
+    fontWeight: "500",
     marginTop: hp(0.2),
-    textAlign: 'center',
+    textAlign: "center",
+  },
+  badge: { 
+    position: "absolute",
+    top: hp(0.3),
+    left: wp(3),
+    backgroundColor: "red",
+    borderRadius: hp(1.2),
+    minWidth: hp(2.2),
+    height: hp(2.2),
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: wp(0.5),
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: hp(1.2),
+    fontWeight: "600",
   },
 });

@@ -1,4 +1,3 @@
-// OrderDetailsScreen.tsx
 import React, { useCallback, useEffect, useRef, useState, memo } from "react";
 import {
   View,
@@ -8,16 +7,17 @@ import {
   FlatList,
   Image,
   ScrollView,
+  RefreshControl,
+  StatusBar,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import axios from "axios";
 import { useRoute } from "@react-navigation/native";
-import { BASE_URL } from "@/api";
 import { hp, wp } from "@/src/assets/utils/responsive";
 import theme from "@/src/assets/colors/theme";
 import CommonHeader from "@/src/Common/CommonHeader";
 import { timeAgo } from "@/src/assets/utils/timeAgo";
 import axiosClient from "@/src/api/client";
+import { BASE_URL } from "@/api";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 // =======================
 // Helpers
@@ -38,21 +38,53 @@ const getStatusLabel = (status: string) => {
 // =======================
 // Subcomponents
 // =======================
-const ItemRow = memo(({ item }: { item: any }) => (
-  <View style={styles.itemRow}>
-    <Image
-      style={styles.itemImage}
-      source={{ uri: `${BASE_URL}/uploads/menus/${item?.imageUrl}` }}
-    />
-    <View style={styles.itemMeta}>
-      <Text style={styles.itemName}>{item?.menuName ?? "Unknown Item"}</Text>
-      <Text style={styles.itemSub}>₹{(item?.price ?? 0).toFixed(2)} each</Text>
+// near top imports add useState if not already imported:
+// import React, { useCallback, useEffect, useRef, useState, memo } from "react";
+
+const ItemRow = memo(({ item }: { item: any }) => {
+  const [imgFailed, setImgFailed] = useState(false);
+
+  const imageSource =
+    !imgFailed && item?.imageUrl
+      ? { uri: `${BASE_URL}/uploads/menus/${item.imageUrl}` }
+      : require("@/src/assets/images/onBoard1.png");
+
+  const unitPrice = Number(item?.price ?? 0);
+  const qty = Number(item?.quantity ?? 0);
+  const subtotal = unitPrice * qty;
+
+  return (
+    <View style={styles.itemRow}>
+      <Image
+        style={styles.itemImage}
+        source={imageSource}
+        onError={() => setImgFailed(true)}
+        accessibilityLabel={item?.menuName ?? "item image"}
+      />
+
+      <View style={styles.itemMeta}>
+        <Text style={styles.itemName} numberOfLines={1}>
+          {item?.menuName ?? "Unknown Item"}
+        </Text>
+
+        <View style={styles.priceRow}>
+          <Text style={styles.unitPrice}>₹{unitPrice.toFixed(2)}</Text>
+
+          {/* qty badge near unit price */}
+          <View style={styles.qtyBadge} accessibilityRole="text" accessibilityLabel={`Quantity ${qty}`}>
+            <Text style={styles.qtyBadgeText}>×{qty}</Text>
+          </View>
+
+          {/* optional small separator + per-item descriptor */}
+          <Text style={styles.itemSub}> each</Text>
+        </View>
+      </View>
+
+      <Text style={styles.itemPrice}>₹{subtotal.toFixed(2)}</Text>
     </View>
-    <Text style={styles.itemPrice}>
-      ₹{((item?.quantity ?? 0) * (item?.price ?? 0)).toFixed(2)}
-    </Text>
-  </View>
-));
+  );
+});
+
 
 // =======================
 // Main Screen
@@ -62,41 +94,47 @@ const OrderDetailsScreen = () => {
 
   const [order, setOrder] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
-  const fetchOrder = useCallback(async () => {
-    if (!orderId) {
-      setError("Order ID not provided");
-      setLoading(false);
-      return;
-    }
+  // Fetch order details
+  const fetchOrder = useCallback(
+    async (isRefresh = false) => {
+      if (!orderId) {
+        setError("Order ID not provided");
+        setLoading(false);
+        return;
+      }
 
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
+      if (!isRefresh) setLoading(true);
+      else setRefreshing(true);
 
-    try {
-      setLoading(true);
-      const token = await AsyncStorage.getItem("authToken");
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-      const res = await axiosClient.get(`${BASE_URL}/api/orders/${orderId}`, {
-        // headers: token ? { Authorization: `Bearer ${token}` } : {},
-        signal: controller.signal,
-        timeout: 15000,
-      });
+      try {
+        const res = await axiosClient.get(`/api/orders/${orderId}`, {
+          signal: controller.signal,
+          timeout: 10000,
+        });
 // console.log(res.data);
 
-      setOrder(res.data ?? {});
-    } catch (err: any) {
-      if (err?.name === "CanceledError" || axiosClient.isCancel?.(err)) return;
-      console.error("❌ Fetch error:", err?.response?.data ?? err);
-      setError("Failed to load order details.");
-    } finally {
-      setLoading(false);
-    }
-  }, [orderId]);
+        setOrder(res.data ?? {});
+        setError(null);
+      } catch (err: any) {
+        if (err?.name === "CanceledError") return;
+        console.error("❌ Fetch error:", err?.response?.data ?? err);
+        setError("Failed to load order details.");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [orderId]
+  );
 
   useEffect(() => {
     fetchOrder();
@@ -117,8 +155,29 @@ const OrderDetailsScreen = () => {
   if (error) {
     return (
       <View style={styles.container}>
+        <StatusBar
+          barStyle="dark-content" // or "light-content" depending on your background
+          backgroundColor="#F6F4F1" // same as your screen background
+          translucent={false} // false ensures the content is below status bar
+        />
         <CommonHeader title="Order Details" />
-        <Text style={styles.errorText}>{error}</Text>
+        <View style={[styles.center, { flex: 1 }]}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.retry} onPress={() => fetchOrder()}>
+            Tap to retry
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!order) {
+    return (
+      <View style={styles.container}>
+        <CommonHeader title="Order Details" />
+        <View style={[styles.center, { flex: 1 }]}>
+          <Text style={styles.errorText}>No order details available.</Text>
+        </View>
       </View>
     );
   }
@@ -138,12 +197,19 @@ const OrderDetailsScreen = () => {
   // Render
   // =======================
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <CommonHeader title="Order Details" />
 
       <ScrollView
         contentContainerStyle={{ paddingBottom: hp(6) }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => fetchOrder(true)}
+            colors={[theme.PRIMARY_COLOR]}
+          />
+        }
       >
         {/* Summary Card */}
         <View style={[styles.card, styles.summaryCard]}>
@@ -161,27 +227,33 @@ const OrderDetailsScreen = () => {
         </View>
 
         {/* Items Ordered */}
-        <View style={[styles.card]}>
+        <View style={styles.card}>
           <Text style={styles.sectionTitle}>Items Ordered</Text>
           <FlatList
             data={items}
-            keyExtractor={(_, i) => i.toString()}
+            keyExtractor={(item, i) =>
+              `${item?.menuId || item?.id || "itm"}-${i}`
+            }
             renderItem={({ item }) => <ItemRow item={item} />}
             scrollEnabled={false}
+            removeClippedSubviews
+            initialNumToRender={6}
+            maxToRenderPerBatch={10}
+            windowSize={10}
           />
         </View>
 
         {/* Payment Card */}
-        <View style={[styles.card]}>
+        <View style={styles.card}>
           <Text style={styles.sectionTitle}>To Pay</Text>
           <View style={styles.payRow}>
             <View>
-              <Text style={styles.strikeAmount}>
-                ₹{originalAmount.toFixed(2)}
-              </Text>
-              <Text style={styles.finalAmount}>
-                ₹{totalAmount.toFixed(2)}
-              </Text>
+              {originalAmount > totalAmount && (
+                <Text style={styles.strikeAmount}>
+                  ₹{originalAmount.toFixed(2)}
+                </Text>
+              )}
+              <Text style={styles.finalAmount}>₹{totalAmount.toFixed(2)}</Text>
             </View>
             {originalAmount > totalAmount && (
               <Text style={styles.savingText}>
@@ -191,7 +263,7 @@ const OrderDetailsScreen = () => {
           </View>
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -205,10 +277,60 @@ const styles = StyleSheet.create({
   center: { justifyContent: "center", alignItems: "center" },
   errorText: {
     textAlign: "center",
-    marginTop: hp(4),
+    marginTop: hp(2),
     color: "#d00",
     fontSize: hp(1.7),
   },
+  retry: {
+    marginTop: hp(1),
+    color: theme.PRIMARY_COLOR,
+    fontSize: hp(1.6),
+    fontWeight: "600",
+  },
+// inside StyleSheet.create({...})
+priceRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginTop: hp(0.4),
+},
+
+unitPrice: {
+  fontSize: hp(1.3),
+  fontWeight: "600",
+  color: "#222",
+},
+
+qtyBadge: {
+  marginLeft: wp(2),
+  backgroundColor: "#F4F4F6",
+  borderRadius: 8,
+  paddingHorizontal: wp(2),
+  paddingVertical: hp(0.25),
+  justifyContent: "center",
+  alignItems: "center",
+},
+
+qtyBadgeText: {
+  fontSize: hp(1.2),
+  color: "#333",
+  fontWeight: "600",
+},
+
+// small descriptor text like 'each'
+itemSub: {
+  fontSize: hp(1.2),
+  color: "#999",
+  marginLeft: wp(2),
+},
+
+// optionally adjust itemImage if needed
+itemImage: {
+  width: wp(12),
+  height: wp(12),
+  borderRadius: 8,
+  marginRight: wp(3),
+  backgroundColor: "#f6f6f6",
+},
 
   card: {
     marginHorizontal: wp(5),
@@ -233,7 +355,7 @@ const styles = StyleSheet.create({
     minWidth: wp(20),
     height: hp(3.4),
     borderRadius: 20,
-    backgroundColor: "#FFFBF0",
+    backgroundColor: "#FFF5D1",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: wp(3),

@@ -1,478 +1,4 @@
-// // CategoryDetailScreen.fixed.tsx
-// // Patched version with improved extractMenus, stable keys, safer pagination handling,
-// // better debug logs, and simplified MenuRow memoization to avoid stale rows when
-// // switching categories.
-
-// import React, { useCallback, useEffect, useRef, useState } from "react";
-// import {
-//   View,
-//   Text,
-//   StyleSheet,
-//   FlatList,
-//   Image,
-//   ActivityIndicator,
-//   SafeAreaView,
-//   StatusBar,
-//   TextInput,
-//   RefreshControl,
-//   Platform,
-//   TouchableOpacity,
-//   Alert,
-// } from "react-native";
-// import { Ionicons } from "@expo/vector-icons";
-// import axios from "axios";
-// import { hp, wp } from "@/src/assets/utils/responsive";
-// import theme from "@/src/assets/colors/theme";
-// import { BASE_URL } from "@/api";
-// import AsyncStorage from "@react-native-async-storage/async-storage";
-// import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
-// import { ParamListBase, useNavigation } from "@react-navigation/native";
-// import CommonHeader from "@/src/Common/CommonHeader";
-// import axiosClient from "@/src/api/client";
-// import CommonStatusHeader from "@/src/Common/CommonStatusHeader";
-
-// // --------------------- Types ---------------------
-// type MenuItem = {
-//   menuId?: number;
-//   menuName?: string;
-//   imageUrl?: string;
-//   price?: string | number;
-//   ingredients?: string;
-//   isAvailable?: number;
-//   rating?: number;
-// };
-
-// type RootStackParamList = {
-//   CategoryDetail: { categoryId: number | string; categoryName?: string };
-// };
-
-// type Props = NativeStackScreenProps<RootStackParamList, "CategoryDetail">;
-
-// // --------------------- MenuRow (presentational) ---------------------
-// // NOTE: removed fragile custom comparator so rows won't accidentally skip renders
-// // when the list switches category or when backend returns equivalent menuIds across categories.
-// const MenuRow = React.memo(({ item, onAdd }: { item: MenuItem; onAdd: (m: MenuItem) => void }) => {
-//   const [imgFailed, setImgFailed] = useState(false);
-
-//   const imgSource =
-//     !imgFailed && item.imageUrl
-//       ? { uri: `${BASE_URL}/uploads/menus/${item.imageUrl}` }
-//       : require("@/src/assets/images/onBoard1.png"); // fallback local image
-
-//   return (
-//     <View style={styles.menuRow} accessible accessibilityRole="button">
-//       <View style={styles.menuLeft}>
-//         <Image
-//           source={imgSource}
-//           style={styles.menuImage}
-//           resizeMode="cover"
-//           onError={() => setImgFailed(true)}
-//           accessibilityLabel={item.menuName ?? "menu image"}
-//         />
-//       </View>
-
-//       <View style={styles.menuCenter}>
-//         <Text style={styles.menuTitle} numberOfLines={1}>
-//           {item.menuName ?? "Unnamed Dish"}
-//         </Text>
-
-//         <Text style={styles.menuSubtitle} numberOfLines={2}>
-//           {item.ingredients ?? "No description available"}
-//         </Text>
-
-//         <Text style={styles.menuPrice}>
-//           {item.price !== undefined && item.price !== null ? `₹${item.price}` : "Price not available"}
-//         </Text>
-//       </View>
-
-//       <View style={styles.menuRight}>
-//         {item.rating && item.rating > 0 ? (
-//           <View style={styles.popularBadge} accessible accessibilityLabel="Popular">
-//             <Text style={styles.popularText}>Popular</Text>
-//           </View>
-//         ) : (
-//           <View style={{ height: hp(2.2) }} />
-//         )}
-
-//         <TouchableOpacity
-//           onPress={() => onAdd(item)}
-//           style={styles.addButton}
-//           activeOpacity={0.8}
-//           accessibilityRole="button"
-//           accessibilityLabel={`Add ${item.menuName ?? "item"}`}>
-//           <Text style={styles.addBtnText}>+ Add</Text>
-//         </TouchableOpacity>
-//       </View>
-//     </View>
-//   );
-// });
-
-// // --------------------- Screen ---------------------
-// const CategoryDetailScreen = ({ route }:any) => {
-//   // Normalize categoryId to string internally to avoid strict === mismatches
-//   const rawCategoryId = route?.params?.categoryId;
-//   const categoryIdStr = rawCategoryId !== undefined && rawCategoryId !== null ? String(rawCategoryId) : "";
-//   const categoryName = route?.params?.categoryName;
-
-//   const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>();
-
-//   const [menus, setMenus] = useState<MenuItem[]>([]);
-//   const [page, setPage] = useState(1);
-//   const limit = 10;
-//   const [loading, setLoading] = useState(false);
-//   const [loadingMore, setLoadingMore] = useState(false);
-//   const [refreshing, setRefreshing] = useState(false);
-//   const [total, setTotal] = useState<number | null>(null);
-
-//   // search (debounced)
-//   const [query, setQuery] = useState("");
-//   const [debouncedQuery, setDebouncedQuery] = useState("");
-//   useEffect(() => {
-//     const t = setTimeout(() => setDebouncedQuery(query.trim()), 300);
-//     return () => clearTimeout(t);
-//   }, [query]);
-
-//   // token + cancel
-//   const tokenRef = useRef<string | null>(null);
-//   const cancelRef = useRef(axiosClient.CancelToken.source());
-
-//   useEffect(() => {
-//     (async () => {
-//       try {
-//         tokenRef.current = await AsyncStorage.getItem("authToken");
-//       } catch (e) {
-//         console.warn("Failed to read token from AsyncStorage", e);
-//         tokenRef.current = null;
-//       }
-//     })();
-//     return () => {
-//       cancelRef.current?.cancel("unmount");
-//     };
-//   }, []);
-
-// // --- REPLACE extractMenus with this ---
-// const extractMenus = (resData: any, categoryIdLocal?: string): MenuItem[] => {
-//   if (!resData) return [];
-//   const payload = resData.data ?? resData;
-//   if (!Array.isArray(payload)) return [];
-
-//   // If payload is an array of menu objects (direct menus), return it
-//   const looksLikeMenus = payload.every((p: any) => p && (p.menuId !== undefined || p.menuName !== undefined));
-//   if (looksLikeMenus) return payload as MenuItem[];
-
-//   // If payload is an array of categories with .menus, only return menus for the matching category
-//   if (categoryIdLocal) {
-//     // filter categories that match the requested categoryId
-//     const matched = payload.find((c: any) => {
-//       try {
-//         return String(c?.categoryId) === String(categoryIdLocal);
-//       } catch {
-//         return false;
-//       }
-//     });
-//     if (matched && Array.isArray(matched.menus)) return matched.menus;
-//     // If the page doesn't include the requested category, return empty array (do NOT flatten other categories)
-//     return [];
-//   }
-
-//   // No categoryId provided — fallback: flatten all menus (rare)
-//   const allMenus = payload.reduce((acc: MenuItem[], cur: any) => {
-//     if (Array.isArray(cur?.menus)) acc.push(...cur.menus);
-//     return acc;
-//   }, [] as MenuItem[]);
-//   return allMenus;
-// };
-
-
-//   const fetchMenus = useCallback(
-//     async (opts?: { page?: number; replace?: boolean }) => {
-//       const p = opts?.page ?? 1;
-//       if (p === 1) setLoading(true);
-//       else setLoadingMore(true);
-
-//       try {
-//         // cancel previous
-//         cancelRef.current?.cancel("new request");
-//         cancelRef.current = axiosClient.CancelToken.source();
-
-//         // Debug: log what we're fetching
-//         // console.log(`fetchMenus: categoryId=${categoryIdStr} page=${p} q=${debouncedQuery}`);
-
-//         const res = await axiosClient.get(`/api/category/${categoryIdStr}/menus`, {
-//           params: { page: p, limit, search: debouncedQuery },
-//           // headers: tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : undefined,
-//           cancelToken: cancelRef.current.token,
-//           timeout: 15000,
-//         });
-
-//         // console.log("raw response (debug):", { page: res.data?.page, limit: res.data?.limit, totalCount: res.data?.totalCount, total: res.data?.total });
-
-//         const dataMenus = extractMenus(res.data, categoryIdStr);
-
-//         // Determine totalCount robustly. If server reports 0 but returned menus, treat total as unknown (null)
-//         const reportedTotal = typeof res?.data?.total === "number" ? res.data.total : typeof res?.data?.totalCount === "number" ? res.data.totalCount : null;
-//         const effectiveTotal = reportedTotal === 0 && Array.isArray(dataMenus) && dataMenus.length > 0 ? null : reportedTotal;
-
-//         if (opts?.replace || p === 1) setMenus(dataMenus);
-//         else setMenus((cur) => [...cur, ...dataMenus]);
-
-//         setTotal(effectiveTotal);
-//         setPage(p);
-
-//         // Extra debug to help spot mismatches
-//         // console.log(`parsed menus count=${dataMenus.length} total=${effectiveTotal}`);
-//       } catch (err: any) {
-//         if (!axiosClient.isCancel(err)) {
-//           console.warn("fetchMenus error:", err?.response?.data ?? err?.message ?? err);
-//           // optionally show UI alert in dev
-//           // Alert.alert('Error', err?.message ?? 'Failed to load menus');
-//         }
-//       } finally {
-//         setLoading(false);
-//         setLoadingMore(false);
-//         setRefreshing(false);
-//       }
-//     },
-//     [categoryIdStr, debouncedQuery]
-//   );
-
-//   // fetch on mount / when categoryId or debouncedQuery changes
-//   useEffect(() => {
-//     // reset page and menus when category changes
-//     setPage(1);
-//     setMenus([]);
-//     setTotal(null);
-//     fetchMenus({ page: 1, replace: true });
-//     // eslint-disable-next-line react-hooks/exhaustive-deps
-//   }, [categoryIdStr, debouncedQuery]);
-
-//   const onRefresh = useCallback(() => {
-//     setRefreshing(true);
-//     fetchMenus({ page: 1, replace: true });
-//   }, [fetchMenus]);
-
-//   const loadMore = useCallback(() => {
-//     if (loadingMore || loading) return;
-//     // if we have a reliable total and we've already loaded it, don't load more
-//     if (typeof total === "number" && menus.length >= total) return;
-//     const next = page + 1;
-//     fetchMenus({ page: next });
-//   }, [menus, page, total, fetchMenus, loadingMore, loading]);
-
-//   const onAdd = useCallback((item: MenuItem) => {
-//     // console.log("Add pressed:", item?.menuId ?? item?.menuName);
-//     // navigation.navigate('Cart', { add: item })
-//   }, []);
-
-//   // include categoryId in key so RN can't accidentally reuse views between categories
-//   const keyExtractor = useCallback(
-//     (item: MenuItem, index: number) => {
-//       const idPart = item?.menuId !== undefined && item?.menuId !== null ? String(item.menuId) : item?.menuName ? `${item.menuName}-${index}` : String(index);
-//       return `${categoryIdStr}-${idPart}`;
-//     },
-//     [categoryIdStr]
-//   );
-
-//   const renderItem = useCallback(
-//     ({ item }: { item: MenuItem }) => <MenuRow item={item} onAdd={onAdd} />,
-//     [onAdd]
-//   );
-
-//   return (
-//     <SafeAreaView style={styles.container}>
-//       {/* <StatusBar barStyle="dark-content" backgroundColor="#fff" /> */}
-//       {/* Header */}
-//       {/* <CommonHeader title={categoryName ?? "Category"}  /> */}
-//       <CommonStatusHeader title={categoryName ?? "Category"} bgColor="#FBCEB1"/>
-
-//       {/* Search */}
-//       <View style={styles.searchContainer}>
-//         <Ionicons name="search-outline" size={hp(2.2)} color="#999" />
-//         <TextInput
-//           style={styles.searchInput}
-//           placeholder={`Search ${categoryName ?? "items"}`}
-//           value={query}
-//           onChangeText={setQuery}
-//           placeholderTextColor="#aaa"
-//           returnKeyType="search"
-//           accessible
-//           accessibilityLabel="Search menus"
-//         />
-//       </View>
-
-//       {/* Content */}
-//       {loading && menus.length === 0 ? (
-//         <ActivityIndicator size="large" color={theme.PRIMARY_COLOR} style={{ marginTop: hp(6) }} />
-//       ) : (
-//         <FlatList
-//           data={menus}
-//           renderItem={renderItem}
-//           keyExtractor={keyExtractor}
-//           contentContainerStyle={styles.listContent}
-//           ItemSeparatorComponent={() => <View style={styles.separator} />}
-//           onEndReachedThreshold={0.4}
-//           onEndReached={loadMore}
-//           initialNumToRender={6}
-//           maxToRenderPerBatch={8}
-//           windowSize={7}
-//           removeClippedSubviews={Platform.OS === "android"}
-//           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-//           ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 12 }} /> : null}
-//           ListEmptyComponent={() =>
-//             !loading ? (
-//               <View style={styles.emptyContainer}>
-//                 <Text style={styles.emptyText}>No items in this category</Text>
-//               </View>
-//             ) : null
-//           }
-//           getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
-//         />
-//       )}
-//     </SafeAreaView>
-//   );
-// };
-
-// export default CategoryDetailScreen;
-
-// // --------------------- Styles ---------------------
-// const ROW_HEIGHT = hp(12);
-
-// const styles = StyleSheet.create({
-//   container: { flex: 1, backgroundColor: "#fff" },
-
-//   header: {
-//     flexDirection: "row",
-//     alignItems: "center",
-//     paddingHorizontal: wp(4),
-//     paddingVertical: hp(1.3),
-//     backgroundColor: "#fff",
-//   },
-//   headerTitle: {
-//     fontSize: hp(2.2),
-//     fontWeight: "600",
-//     marginLeft: wp(3),
-//     color: theme.PRIMARY_COLOR,
-//     textAlign: "center",
-//     flex: 1,
-//   },
-
-//   searchContainer: {
-//     flexDirection: "row",
-//     alignItems: "center",
-//     backgroundColor: "#F6F6F6",
-//     marginHorizontal: wp(5),
-//     borderRadius: wp(2),
-//     paddingHorizontal: wp(3),
-//     marginTop: hp(2),
-//     height: hp(5.4),
-//   },
-//   searchInput: {
-//     flex: 1,
-//     marginLeft: wp(2),
-//     fontSize: hp(1.8),
-//     color: "#333",
-//     paddingVertical: 0,
-//   },
-
-//   listContent: {
-//     paddingHorizontal: wp(3),
-//     paddingBottom: hp(6),
-//     paddingTop: hp(2),
-//   },
-
-//   // Menu row layout
-//   menuRow: {
-//     flexDirection: "row",
-//     alignItems: "flex-start",
-//     backgroundColor: "#fff",
-//     paddingVertical: hp(1.5),
-//     paddingHorizontal: wp(1),
-//   },
-//   menuLeft: {
-//     width: wp(18),
-//     height: wp(18),
-//     borderRadius: wp(2),
-//     backgroundColor: "#f0f0f0",
-//     justifyContent: "center",
-//     alignItems: "center",
-//     overflow: "hidden",
-//   },
-//   menuImage: {
-//     width: "100%",
-//     height: "100%",
-//   },
-
-//   menuCenter: {
-//     flex: 1,
-//     marginLeft: wp(3),
-//     justifyContent: "center",
-//   },
-//   menuTitle: {
-//     fontSize: hp(1.9),
-//     fontWeight: "600",
-//     color: "#222",
-//   },
-//   menuSubtitle: {
-//     fontSize: hp(1.4),
-//     color: "#777",
-//     marginTop: hp(0.3),
-//   },
-//   menuPrice: {
-//     fontSize: hp(1.6),
-//     fontWeight: "700",
-//     color: "#222",
-//     marginTop: hp(0.6),
-//   },
-
-//   menuRight: {
-//     width: wp(22),
-//     alignItems: "flex-end",
-//     justifyContent: "space-between",
-//     marginLeft: wp(2),
-//   },
-
-//   addButton: {
-//     backgroundColor: "#6C3F24",
-//     paddingHorizontal: wp(3.5),
-//     paddingVertical: hp(0.8),
-//     borderRadius: wp(2),
-//     marginTop: hp(1),
-//   },
-//   addBtnText: {
-//     color: "#fff",
-//     fontSize: hp(1.5),
-//     fontWeight: "600",
-//   },
-
-//   popularBadge: {
-//     backgroundColor: "#EAF9F1",
-//     paddingHorizontal: wp(2),
-//     paddingVertical: hp(0.4),
-//     borderRadius: wp(2),
-//   },
-//   popularText: {
-//     color: "#2AA35A",
-//     fontSize: hp(1.2),
-//     fontWeight: "700",
-//   },
-
-//   separator: {
-//     height: 1,
-//     backgroundColor: "#F0F0F0",
-//   },
-
-//   emptyContainer: {
-//     alignItems: "center",
-//     marginTop: hp(6),
-//   },
-//   emptyText: {
-//     color: "#666",
-//     fontSize: hp(1.8),
-//   },
-// });
-// CategoryDetailScreen.fixed.withCart.tsx
-// CategoryDetailScreen.withQtyControls.tsx
-import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import React, {useCallback, useEffect, useRef, useState, useMemo} from "react";
 import {
   View,
   Text,
@@ -480,38 +6,37 @@ import {
   FlatList,
   Image,
   ActivityIndicator,
-  SafeAreaView,
   StatusBar,
   TextInput,
   RefreshControl,
   Platform,
   TouchableOpacity,
   Pressable,
+  Alert,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { hp, wp } from "@/src/assets/utils/responsive";
+import {Ionicons} from "@expo/vector-icons";
+import {hp, wp} from "@/src/assets/utils/responsive";
 import theme from "@/src/assets/colors/theme";
-import { BASE_URL } from "@/api";
+import {BASE_URL} from "@/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { ParamListBase, useNavigation } from "@react-navigation/native";
+import {ParamListBase, useNavigation} from "@react-navigation/native";
 import CommonStatusHeader from "@/src/Common/CommonStatusHeader";
 
 // Redux
-import { useDispatch, useSelector, shallowEqual } from "react-redux";
-import { RootState } from "@/src/Redux/store";
+import {useDispatch, useSelector, shallowEqual} from "react-redux";
 import {
   addToCartAsync,
   fetchCartAsync,
   selectCartItems,
   updateCartItemAsync,
 } from "@/src/Redux/Slice/cartSlice";
-import { selectSelectedShopId } from "@/src/Redux/Slice/selectedShopSlice";
+import {selectSelectedShopId} from "@/src/Redux/Slice/selectedShopSlice";
 import CartIconWithBadge from "@/src/components/CartIconBadge";
-import { getUserIdFromToken } from "@/src/assets/utils/getUserIdFromToken";
+import {getUserIdFromToken} from "@/src/assets/utils/getUserIdFromToken";
 import axiosClient from "@/src/api/client";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import {SafeAreaProvider} from "react-native-safe-area-context";
+import CartBottomBar from "@/src/components/CartBar/CartBottomBar";
 
-// --------------------- Types ---------------------
 type MenuItem = {
   menuId?: number;
   menuName?: string;
@@ -523,31 +48,37 @@ type MenuItem = {
 };
 
 const ROW_HEIGHT = hp(12);
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 100;
 
-// --------------------- MenuRow (presentational) ---------------------
-// Now accepts cartEntry and onIncrease/onDecrease to show qty controls when present.
+/* ---------------- MenuRow (memoized with custom equality) ---------------- */
 const MenuRow = React.memo(function MenuRow({
   item,
   cartEntry,
   onIncrease,
   onDecrease,
   onAdd,
-  loading,
+  localLoading,
+  forceEnableAdd = false,
 }: {
   item: MenuItem;
-  cartEntry: any | undefined;
+  cartEntry?: any;
   onIncrease: (m: MenuItem) => void;
   onDecrease: (m: MenuItem) => void;
   onAdd: (m: MenuItem) => void;
-  loading: boolean;
+  localLoading: boolean;
+  forceEnableAdd?: boolean;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const imgSource =
     !imgFailed && item.imageUrl
-      ? { uri: `${BASE_URL}/uploads/menus/${item.imageUrl}` }
-      : require("@/src/assets/images/onBoard1.png"); // fallback local image
+      ? {uri: `${BASE_URL}/uploads/menus/${item.imageUrl}`}
+      : require("@/src/assets/images/onBoard1.png");
 
   const qty = cartEntry?.quantity || 0;
+  const isAvailable = item.isAvailable !== 0; // treat missing as available
+  const showAdd = qty === 0;
+  const addEnabled = forceEnableAdd || isAvailable;
 
   return (
     <View style={styles.menuRow} accessible accessibilityRole="button">
@@ -571,7 +102,9 @@ const MenuRow = React.memo(function MenuRow({
         </Text>
 
         <Text style={styles.menuPrice}>
-          {item.price !== undefined && item.price !== null ? `₹${item.price}` : "Price not available"}
+          {item.price !== undefined && item.price !== null
+            ? `₹${item.price}`
+            : "Price not available"}
         </Text>
       </View>
 
@@ -581,20 +114,19 @@ const MenuRow = React.memo(function MenuRow({
             <Text style={styles.popularText}>Popular</Text>
           </View>
         ) : (
-          <View style={{ height: hp(2.2) }} />
+          <View style={{height: hp(2.2)}} />
         )}
 
-        {/* If item is in cart, show +/- controls; otherwise show Add */}
         {qty > 0 ? (
           <View style={styles.qtyControl}>
             <Pressable
               onPress={() => onDecrease(item)}
               style={styles.qtyBtn}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
               accessibilityLabel={`Decrease ${item.menuName}`}
-              disabled={loading}
+              disabled={localLoading}
             >
-              {loading ? <ActivityIndicator /> : <Ionicons name="remove-circle-outline" size={hp(3)} color="#6C3F24" />}
+              <Ionicons name="remove-circle-outline" size={hp(3)} color="#6C3F24" />
             </Pressable>
 
             <Text style={styles.qtyText}>{qty}</Text>
@@ -602,45 +134,86 @@ const MenuRow = React.memo(function MenuRow({
             <Pressable
               onPress={() => onIncrease(item)}
               style={styles.qtyBtn}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
               accessibilityLabel={`Increase ${item.menuName}`}
-              disabled={loading}
+              disabled={localLoading}
             >
-              {loading ? <ActivityIndicator /> : <Ionicons name="add-circle-outline" size={hp(3)} color="#6C3F24" />}
+              <Ionicons name="add-circle-outline" size={hp(3)} color="#6C3F24" />
             </Pressable>
           </View>
-        ) : (
-          <TouchableOpacity
-            onPress={() => onAdd(item)}
-            style={styles.addButton}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel={`Add ${item.menuName ?? "item"}`}
-            disabled={loading}
-          >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.addBtnText}>+ Add</Text>}
-          </TouchableOpacity>
-        )}
+        ) : showAdd ? (
+          addEnabled ? (
+            <TouchableOpacity
+              onPress={() => onAdd(item)}
+              style={[styles.addButton, localLoading ? {opacity: 0.6} : null]}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={`Add ${item.menuName ?? "item"}`}
+              disabled={localLoading}
+            >
+              <Text style={styles.addBtnText}>+ Add</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.addButton, {backgroundColor: "#ccc", minWidth: wp(16)}]}>
+              <Text style={[styles.addBtnText, {color: "#666"}]}>Unavailable</Text>
+            </View>
+          )
+        ) : null}
       </View>
     </View>
   );
-});
+}, areMenuRowEqual);
 
-// --------------------- Screen ---------------------
-const CategoryDetailScreen = ({ route }: any) => {
-  // Normalize categoryId to string internally to avoid strict === mismatches
+function areMenuRowEqual(prev: any, next: any) {
+  // Only re-render when values that affect the UI change.
+  const a = prev as any;
+  const b = next as any;
+  if (a.item?.menuId !== b.item?.menuId) return false;
+  if (a.item?.menuName !== b.item?.menuName) return false;
+  if ((a.cartEntry?.quantity || 0) !== (b.cartEntry?.quantity || 0)) return false;
+  if (a.localLoading !== b.localLoading) return false;
+  if ((a.item?.imageUrl || "") !== (b.item?.imageUrl || "")) return false;
+  if (a.forceEnableAdd !== b.forceEnableAdd) return false;
+  return true;
+}
+
+/* ---------------- CategoryDetailScreen ---------------- */
+const CategoryDetailScreen = ({route}: any) => {
+  // helper: detect axios cancel / abort errors
+const isAbortError = (err: any) => {
+  if (!err) return false;
+  if (typeof axiosClient?.isCancel === "function" && axiosClient.isCancel(err)) return true;
+  if (err?.name === "CanceledError" || err?.code === "ERR_CANCELED") return true;
+  const msg = String(err?.message ?? "").toLowerCase();
+  return msg.includes("cancel") || msg.includes("canceled") || msg.includes("cancelled");
+};
+
+// safe abort and clear controller reference so we don't abort twice
+const safeAbort = () => {
+  try {
+    if (cancelRef.current) {
+      cancelRef.current.abort();
+      cancelRef.current = null;
+    }
+  } catch (e) {
+    // ignore
+  }
+};
+
   const rawCategoryId = route?.params?.categoryId;
-  const categoryIdStr = rawCategoryId !== undefined && rawCategoryId !== null ? String(rawCategoryId) : "";
-  const categoryName = route?.params?.categoryName;
+  const categoryIdStr =
+    rawCategoryId !== undefined && rawCategoryId !== null ? String(rawCategoryId) : "";
+  const isCategoryZero = categoryIdStr === "0";
+
+  const categoryName = route?.params?.categoryName ?? "Category";
 
   const navigation = useNavigation<ParamListBase>();
   const dispatch = useDispatch();
 
-  // redux selectors
+  // selectors
   const shopId = useSelector(selectSelectedShopId);
   const cartItems = useSelector(selectCartItems, shallowEqual);
 
-  // create cartMap for O(1) lookup of menuId -> cart entry
   const cartMap = useMemo(() => {
     const m: Record<number, any> = {};
     (cartItems || []).forEach((it: any) => {
@@ -649,143 +222,212 @@ const CategoryDetailScreen = ({ route }: any) => {
     return m;
   }, [cartItems]);
 
-  const totalItems = useMemo(() => (cartItems || []).reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0), [cartItems]);
-
+  // state
   const [menus, setMenus] = useState<MenuItem[]>([]);
   const [page, setPage] = useState(1);
-  const limit = 10;
+  const [limit] = useState(DEFAULT_LIMIT);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [total, setTotal] = useState<number | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // search (debounced)
+  // per-item loading map (stateful so UI updates reliably)
+  const [menuLoadingMap, setMenuLoadingMap] = useState<Record<string, boolean>>({});
+  const setMenuLoading = useCallback((id: string, v = true) => {
+    setMenuLoadingMap((prev) => {
+      if (prev[id] === v) return prev;
+      return {...prev, [id]: v};
+    });
+  }, []);
+  const isMenuLoading = useCallback((id: string) => !!menuLoadingMap[id], [menuLoadingMap]);
+
+  // search & debounce
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const debounceRef = useRef<any>(null);
+
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(query.trim()), 300);
-    return () => clearTimeout(t);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [query]);
 
-  // cancel token
-const cancelRef = useRef<AbortController | null>(null);
+  const isSearching = query.trim().length > 0 && query.trim() !== debouncedQuery;
 
-useEffect(() => {
-  return () => {
-    // abort any in-flight request on unmount and clear ref
-    try { cancelRef.current?.abort(); } catch {}
-    cancelRef.current = null;
-  };
-}, []);
+  const inputRef = useRef<TextInput | null>(null);
+  const [focused, setFocused] = useState(false);
 
-  // --- Helper to extract menus robustly ---
-  const extractMenus = (resData: any, categoryIdLocal?: string): MenuItem[] => {
-    if (!resData) return [];
-    const payload = resData.data ?? resData;
-    if (!Array.isArray(payload)) return [];
+  // mounted guard + cancel ref
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      try {
+        cancelRef.current?.abort();
+      } catch {}
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
-    const looksLikeMenus = payload.every((p: any) => p && (p.menuId !== undefined || p.menuName !== undefined));
-    if (looksLikeMenus) return payload as MenuItem[];
+  const cancelRef = useRef<AbortController | null>(null);
 
-    if (categoryIdLocal) {
-      const matched = payload.find((c: any) => {
-        try {
-          return String(c?.categoryId) === String(categoryIdLocal);
-        } catch {
-          return false;
-        }
-      });
-      if (matched && Array.isArray(matched.menus)) return matched.menus;
-      return [];
+  // helper to parse menus robustly
+  const extractMenus = useCallback((res: any) => {
+    const payload = res?.data?.data ?? res?.data ?? null;
+    if (Array.isArray(payload)) return payload as MenuItem[];
+    if (Array.isArray(res?.data?.menus)) return res.data.menus;
+    return [];
+  }, []);
+
+  // fetchMenus (retry once) - now accepts an optional search override so callers can force empty search immediately
+const fetchMenus = useCallback(
+  async (opts?: { page?: number; replace?: boolean; search?: string }) => {
+    const p = Math.max(1, opts?.page ?? 1);
+    if (!categoryIdStr) return;
+
+    if (p === 1) {
+      setLoading(true);
+      setErrorMsg(null);
+    } else {
+      setLoadingMore(true);
     }
 
-    const allMenus = payload.reduce((acc: MenuItem[], cur: any) => {
-      if (Array.isArray(cur?.menus)) acc.push(...cur.menus);
-      return acc;
-    }, [] as MenuItem[]);
-    return allMenus;
-  };
-
-  // ---------------- fetchMenus ----------------
-  const fetchMenus = useCallback(
-    async (opts?: { page?: number; replace?: boolean }) => {
-      const p = opts?.page ?? 1;
-      if (p === 1) setLoading(true);
-      else setLoadingMore(true);
-
-      try {
-       cancelRef.current?.abort();
-      cancelRef.current = new AbortController(); 
+    try {
+      // abort any previous request and create new controller
+      safeAbort();
+      cancelRef.current = new AbortController();
       const signal = cancelRef.current.signal;
 
-        const res = await axiosClient.get(`/api/category/${categoryIdStr}/menus`, {
-          params: { page: p, limit, search: debouncedQuery },
-          signal,
-          timeout: 15000,
+      const safeLimit = Math.min(limit, MAX_LIMIT);
+      const url = `/api/category/${encodeURIComponent(categoryIdStr)}/menus`;
+
+      // prefer explicit override if caller supplied `search`
+      const hasSearchOverride = opts && Object.prototype.hasOwnProperty.call(opts, "search");
+      const searchToUse = hasSearchOverride ? opts!.search : debouncedQuery;
+
+      // build params — only include search when non-empty to avoid backend surprises
+      const params: any = { page: p, limit: safeLimit };
+      if (searchToUse != null && String(searchToUse).trim().length > 0) params.search = String(searchToUse).trim();
+
+
+      const res = await axiosClient.get(url, { params, signal, timeout: 15000 });
+
+      if (!mountedRef.current) return;
+
+      const dataMenus = extractMenus(res);
+      const reportedTotal =
+        typeof res?.data?.total === "number"
+          ? res.data.total
+          : typeof res?.data?.totalCount === "number"
+          ? res.data.totalCount
+          : null;
+      const effectiveTotal =
+        reportedTotal === 0 && Array.isArray(dataMenus) && dataMenus.length > 0 ? null : reportedTotal;
+
+      if (opts?.replace || p === 1) {
+        setMenus(dataMenus);
+        setPage(1);
+      } else {
+        setMenus((cur) => {
+          if (!Array.isArray(cur)) return dataMenus;
+          const map = new Map<number | string, MenuItem>();
+          cur.forEach((m) => map.set(m.menuId ?? m.menuName ?? JSON.stringify(m), m));
+          dataMenus.forEach((m) => map.set(m.menuId ?? m.menuName ?? JSON.stringify(m), m));
+          return Array.from(map.values());
         });
-
-        const dataMenus = extractMenus(res.data, categoryIdStr);
-        const reportedTotal =
-          typeof res?.data?.total === "number" ? res.data.total : typeof res?.data?.totalCount === "number" ? res.data.totalCount : null;
-        const effectiveTotal = reportedTotal === 0 && Array.isArray(dataMenus) && dataMenus.length > 0 ? null : reportedTotal;
-
-        if (opts?.replace || p === 1) setMenus(dataMenus);
-        else setMenus((cur) => [...cur, ...dataMenus]);
-
-        setTotal(effectiveTotal);
         setPage(p);
-      } catch (err: any) {
-        if (!axiosClient.isCancel(err)) {
-          console.warn("fetchMenus error:", err?.response?.data ?? err?.message ?? err);
-        }
-      } finally {
-        setLoading(false);
-        setLoadingMore(false);
-        setRefreshing(false);
       }
-    },
-    [categoryIdStr, debouncedQuery]
-  );
 
+      setTotal(effectiveTotal);
+    } catch (err: any) {
+      if (isAbortError(err)) {
+        console.log("[fetchMenus] request aborted");
+        // do not set errorMsg for intentional aborts
+        return;
+      }
+      const msg = err?.response?.data?.message ?? err?.message ?? "Failed to load menus";
+      setErrorMsg(String(msg));
+      console.warn("[CategoryDetail] fetchMenus error:", msg);
+    } finally {
+      if (!mountedRef.current) return;
+      setLoading(false);
+      setLoadingMore(false);
+      setRefreshing(false);
+      // clear controller reference so safeAbort knows there's nothing to abort
+      cancelRef.current = null;
+    }
+  },
+  [categoryIdStr, debouncedQuery, extractMenus, limit]
+);
+
+  // handleClear uses fetchMenus — include fetchMenus in deps
+const handleClear = useCallback(() => {
+  // stop debounce timers
+  if (debounceRef.current) {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+  }
+
+  // clear UI state immediately
+  setQuery("");
+  setDebouncedQuery("");
+  setMenus([]);
+  setTotal(null);
+  setPage(1);
+
+  // abort current request safely and fetch fresh list with explicit empty search
+  safeAbort();
+  fetchMenus({ page: 1, replace: true, search: "" });
+
+  // optional: hide keyboard
+  inputRef.current?.blur?.();
+}, [fetchMenus]);
+
+
+  // initial load & search
   useEffect(() => {
+    if (!categoryIdStr) return;
     setPage(1);
     setMenus([]);
     setTotal(null);
-    fetchMenus({ page: 1, replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryIdStr, debouncedQuery]);
+    fetchMenus({page: 1, replace: true});
+  }, [categoryIdStr, debouncedQuery, fetchMenus]);
 
   const onRefresh = useCallback(() => {
+    if (!categoryIdStr) return;
     setRefreshing(true);
-    fetchMenus({ page: 1, replace: true });
-  }, [fetchMenus]);
+    // clear current list so refresh is visually obvious
+    setMenus([]);
+    setTotal(null);
+    try {
+      cancelRef.current?.abort();
+    } catch {}
+    fetchMenus({page: 1, replace: true});
+  }, [categoryIdStr, fetchMenus]);
 
   const loadMore = useCallback(() => {
     if (loadingMore || loading) return;
     if (typeof total === "number" && menus.length >= total) return;
-    const next = page + 1;
-    fetchMenus({ page: next });
-  }, [menus, page, total, fetchMenus, loadingMore, loading]);
+    fetchMenus({page: page + 1});
+  }, [loadingMore, loading, total, menus.length, fetchMenus, page]);
 
-  // ---------------- add / inc / dec cart logic ----------------
-  // per-item loading lock (string key safe)
-  const menuLoadingRef = useRef<Record<string, boolean>>({});
-  const setMenuLoading = (id: string, v = true) => {
-    menuLoadingRef.current[id] = v;
-  };
-  const isMenuLoading = (id: string) => !!menuLoadingRef.current[id];
-
-  // add or increase (if exists)
+  /* ---------------- Cart actions (per-item lock) ---------------- */
   const handleAddOrIncrease = useCallback(
     async (item: MenuItem) => {
-      const menuIdKey = String(item?.menuId ?? item?.menuName ?? Math.random());
-      if (isMenuLoading(menuIdKey)) return;
-      setMenuLoading(menuIdKey, true);
+      const menuIdKey = String(item?.menuId ?? item?.menuName ?? "unknown");
 
-      try {
-        const existing = cartMap[Number(item.menuId)];
-        if (existing) {
-          // increment existing
+      // quick guard
+      if (isMenuLoading(menuIdKey)) return;
+
+      const existing = cartMap[Number(item.menuId)];
+      // if updating existing, we will definitely call API -> set loading
+      if (existing) {
+        setMenuLoading(menuIdKey, true);
+        try {
           await dispatch(
             updateCartItemAsync({
               cartId: existing.cartId,
@@ -794,60 +436,69 @@ useEffect(() => {
               notes: existing.notes || "",
             })
           ).unwrap();
-        } else {
-          // add new
-          let userId = null;
-          try {
-            userId = await getUserIdFromToken();
-          } catch {}
-          if (!userId) {
-            const raw = await AsyncStorage.getItem("userId");
-            if (raw) userId = raw;
-          }
-          if (!userId) {
-            console.warn("No userId - cannot add to cart");
-            return;
-          }
-
-          await dispatch(
-            addToCartAsync({
-              userId: Number(userId),
-              shopId: Number(shopId) || undefined,
-              menuId: Number(item.menuId),
-              quantity: 1,
-              addons: [],
-              notes: "",
-            })
-          ).unwrap();
+          if (shopId) await dispatch(fetchCartAsync({shopId})).unwrap();
+        } catch (err: any) {
+          console.error("Increase failed:", err?.message ?? err);
+        } finally {
+          setMenuLoading(menuIdKey, false);
         }
+        return;
+      }
 
-        // refresh cart canonical state (safe)
-        if (shopId) await dispatch(fetchCartAsync({ shopId })).unwrap();
+      // adding new item -> need userId and shopId check
+      let userId: any = null;
+      try {
+        userId = await getUserIdFromToken();
+      } catch {}
+      if (!userId) {
+        const raw = await AsyncStorage.getItem("userId");
+        if (raw) userId = raw;
+      }
+      if (!userId) {
+        Alert.alert("Login required", "Please login to add items to cart.");
+        return;
+      }
+      if (!shopId) {
+        Alert.alert("Shop not selected", "Please select a shop before adding items.");
+        return;
+      }
+
+      // all good -> set loading and call add
+      setMenuLoading(menuIdKey, true);
+      try {
+        await dispatch(
+          addToCartAsync({
+            userId: Number(userId),
+            shopId: Number(shopId),
+            menuId: Number(item.menuId),
+            quantity: 1,
+            addons: [],
+            notes: "",
+          })
+        ).unwrap();
+
+        // refresh canonical cart state (server authoritative)
+        await dispatch(fetchCartAsync({shopId})).unwrap();
       } catch (err: any) {
-        console.error("Add/Increase failed:", err?.message ?? err);
+        console.error("Add failed:", err?.message ?? err);
       } finally {
         setMenuLoading(menuIdKey, false);
       }
     },
-    [cartMap, dispatch, shopId]
+    [cartMap, dispatch, shopId, isMenuLoading, setMenuLoading]
   );
 
-  // decrease or remove
   const handleDecrease = useCallback(
     async (item: MenuItem) => {
-      const menuIdKey = String(item?.menuId ?? item?.menuName ?? Math.random());
+      const menuIdKey = String(item?.menuId ?? item?.menuName ?? "unknown");
       if (isMenuLoading(menuIdKey)) return;
+
+      const existing = cartMap[Number(item.menuId)];
+      if (!existing) return;
+
       setMenuLoading(menuIdKey, true);
-
       try {
-        const existing = cartMap[Number(item.menuId)];
-        if (!existing) {
-          // nothing to remove
-          return;
-        }
         const newQty = (existing.quantity || 0) - 1;
-
-        // call updateCartItemAsync with newQty (server may delete if 0)
         await dispatch(
           updateCartItemAsync({
             cartId: existing.cartId,
@@ -857,34 +508,29 @@ useEffect(() => {
           })
         ).unwrap();
 
-        // refresh cart
-        if (shopId) await dispatch(fetchCartAsync({ shopId })).unwrap();
+        if (shopId) await dispatch(fetchCartAsync({shopId})).unwrap();
       } catch (err: any) {
         console.error("Decrease failed:", err?.message ?? err);
       } finally {
         setMenuLoading(menuIdKey, false);
       }
     },
-    [cartMap, dispatch, shopId]
+    [cartMap, dispatch, shopId, isMenuLoading, setMenuLoading]
   );
 
-  // ---------------- List rendering ----------------
+  /* ---------------- Rendering helpers ---------------- */
   const keyExtractor = useCallback(
     (item: MenuItem, index: number) => {
       const idPart =
-        item?.menuId !== undefined && item?.menuId !== null
-          ? String(item.menuId)
-          : item?.menuName
-          ? `${item.menuName}-${index}`
-          : String(index);
+        item?.menuId !== undefined && item?.menuId !== null ? String(item.menuId) : `${item.menuName ?? "item"}-${index}`;
       return `${categoryIdStr}-${idPart}`;
     },
     [categoryIdStr]
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: MenuItem }) => {
-      const menuKey = String(item?.menuId ?? item?.menuName ?? Math.random());
+    ({item}: {item: MenuItem}) => {
+      const menuKey = String(item?.menuId ?? item?.menuName ?? "unknown");
       const loadingFlag = isMenuLoading(menuKey);
       const cartEntry = cartMap[Number(item.menuId)];
       return (
@@ -894,33 +540,36 @@ useEffect(() => {
           onAdd={handleAddOrIncrease}
           onIncrease={handleAddOrIncrease}
           onDecrease={handleDecrease}
-          loading={loadingFlag}
+          localLoading={loadingFlag}
+          forceEnableAdd={isCategoryZero}
         />
       );
     },
-    [cartMap, handleAddOrIncrease, handleDecrease]
+    [cartMap, handleAddOrIncrease, handleDecrease, isCategoryZero, isMenuLoading]
   );
 
-  // Header with cart badge top-right
-  const HeaderBar = () => (
-    <View style={{ position: "relative" }}>
-      <CommonStatusHeader title={categoryName ?? "Category"} bgColor="#FBCEB1" />
-      <View style={styles.cartTopRight}>
-        {/* CartIconWithBadge should read cart state internally, else pass count={totalItems} */}
-        <CartIconWithBadge /* count={totalItems} */ />
+  const HeaderBar = useCallback(() => {
+    return (
+      <View style={{position: "relative"}}>
+        <CommonStatusHeader title={categoryName ?? "Category"} bgColor="#FBCEB1" />
+        <View style={styles.cartTopRight}>
+          <CartIconWithBadge />
+        </View>
       </View>
-    </View>
-  );
+    );
+  }, [categoryName]);
 
+  /* ---------------- UI ---------------- */
   return (
     <SafeAreaProvider style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <HeaderBar />
 
-      {/* Search */}
+      {/* Search area (clear icon + typing spinner) */}
       <View style={styles.searchContainer}>
         <Ionicons name="search-outline" size={hp(2.2)} color="#999" />
         <TextInput
+          ref={inputRef}
           style={styles.searchInput}
           placeholder={`Search ${categoryName ?? "items"}`}
           value={query}
@@ -929,52 +578,78 @@ useEffect(() => {
           returnKeyType="search"
           accessible
           accessibilityLabel="Search menus"
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
         />
+
+        {isSearching ? (
+          <ActivityIndicator size="small" color={theme.PRIMARY_COLOR} style={{marginLeft: 8}} />
+        ) : null}
+
+        {/* show close/cancel button only when user typed something */}
+        {query ? (
+          <TouchableOpacity onPress={handleClear} style={{marginLeft: 8}} accessibilityLabel="Clear search">
+            <Ionicons name="close-circle" size={hp(2.6)} color="#999" />
+          </TouchableOpacity>
+        ) : null}
       </View>
 
-      {/* Content */}
       {loading && menus.length === 0 ? (
-        <ActivityIndicator size="large" color={theme.PRIMARY_COLOR} style={{ marginTop: hp(6) }} />
+        <ActivityIndicator size="large" color={theme.PRIMARY_COLOR} style={{marginTop: hp(6)}} />
       ) : (
-        <FlatList
-          data={menus}
-          renderItem={renderItem}
-          keyExtractor={keyExtractor}
-          contentContainerStyle={styles.listContent}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          onEndReachedThreshold={0.4}
-          onEndReached={loadMore}
-          initialNumToRender={6}
-          maxToRenderPerBatch={8}
-          windowSize={7}
-          removeClippedSubviews={Platform.OS === "android"}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 12 }} /> : null}
-          ListEmptyComponent={() =>
-            !loading ? (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No items in this category</Text>
-              </View>
-            ) : null
-          }
-          getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
-        />
+        <>
+          {errorMsg ? (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{errorMsg}</Text>
+              <TouchableOpacity onPress={() => fetchMenus({page: 1, replace: true})} style={styles.retryBtn}>
+                <Text style={styles.retryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
+          <FlatList
+            data={menus}
+            renderItem={renderItem}
+            keyExtractor={keyExtractor}
+            contentContainerStyle={styles.listContent}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            onEndReachedThreshold={0.4}
+            onEndReached={loadMore}
+            initialNumToRender={6}
+            maxToRenderPerBatch={8}
+            windowSize={7}
+            removeClippedSubviews={Platform.OS === "android"}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            ListFooterComponent={loadingMore ? <ActivityIndicator style={{margin: 12}} /> : null}
+            ListEmptyComponent={() =>
+              !loading ? (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>No items in this category</Text>
+                </View>
+              ) : null
+            }
+            getItemLayout={(_, index) => ({length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index})}
+            // extraData ensures list rerenders only when relevant external data changes
+            extraData={{cartMap, menuLoadingMap, query, menus}}
+          />
+        </>
       )}
+
+      <CartBottomBar />
     </SafeAreaProvider>
   );
 };
 
 export default CategoryDetailScreen;
 
-// --------------------- Styles ---------------------
+/* ---------------- Styles (same as before) ---------------- */
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: {flex: 1, backgroundColor: "#fff"},
 
   cartTopRight: {
     position: "absolute",
-    right: wp(4),
-    top: Platform.select({ ios: hp(7), android: hp(6) }),
-    // zIndex: 150,
+    right: wp(3),
+    top: Platform.select({ios: hp(7), android: hp(4)}),
   },
 
   searchContainer: {
@@ -1017,39 +692,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     overflow: "hidden",
   },
-  menuImage: {
-    width: "100%",
-    height: "100%",
-  },
+  menuImage: {width: "100%", height: "100%"},
 
-  menuCenter: {
-    flex: 1,
-    marginLeft: wp(3),
-    justifyContent: "center",
-  },
-  menuTitle: {
-    fontSize: hp(1.9),
-    fontWeight: "600",
-    color: "#222",
-  },
-  menuSubtitle: {
-    fontSize: hp(1.4),
-    color: "#777",
-    marginTop: hp(0.3),
-  },
-  menuPrice: {
-    fontSize: hp(1.6),
-    fontWeight: "700",
-    color: "#222",
-    marginTop: hp(0.6),
-  },
+  menuCenter: {flex: 1, marginLeft: wp(3), justifyContent: "center"},
+  menuTitle: {fontSize: hp(1.9), fontWeight: "600", color: "#222"},
+  menuSubtitle: {fontSize: hp(1.4), color: "#777", marginTop: hp(0.3)},
+  menuPrice: {fontSize: hp(1.6), fontWeight: "700", color: "#222", marginTop: hp(0.6)},
 
-  menuRight: {
-    width: wp(28),
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    marginLeft: wp(2),
-  },
+  menuRight: {width: wp(28), alignItems: "flex-end", justifyContent: "space-between", marginLeft: wp(2)},
 
   addButton: {
     backgroundColor: "#6C3F24",
@@ -1060,54 +710,22 @@ const styles = StyleSheet.create({
     minWidth: wp(18),
     alignItems: "center",
   },
-  addBtnText: {
-    color: "#fff",
-    fontSize: hp(1.5),
-    fontWeight: "600",
-  },
+  addBtnText: {color: "#fff", fontSize: hp(1.5), fontWeight: "600"},
 
-  // Qty controls
-  qtyControl: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: wp(2),
-  },
-  qtyBtn: {
-    padding: hp(0.2),
-  },
-  qtyText: {
-    marginHorizontal: wp(2),
-    fontSize: hp(1.6),
-    color: "#222",
-    minWidth: wp(6),
-    textAlign: "center",
-    fontWeight: "600",
-  },
+  qtyControl: {flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: wp(2)},
+  qtyBtn: {padding: hp(0.2)},
+  qtyText: {marginHorizontal: wp(2), fontSize: hp(1.6), color: "#222", minWidth: wp(6), textAlign: "center", fontWeight: "600"},
 
-  popularBadge: {
-    backgroundColor: "#EAF9F1",
-    paddingHorizontal: wp(2),
-    paddingVertical: hp(0.4),
-    borderRadius: wp(2),
-  },
-  popularText: {
-    color: "#2AA35A",
-    fontSize: hp(1.2),
-    fontWeight: "700",
-  },
+  popularBadge: {backgroundColor: "#EAF9F1", paddingHorizontal: wp(2), paddingVertical: hp(0.4), borderRadius: wp(2)},
+  popularText: {color: "#2AA35A", fontSize: hp(1.2), fontWeight: "700"},
 
-  separator: {
-    height: 1,
-    backgroundColor: "#F0F0F0",
-  },
+  separator: {height: 1, backgroundColor: "#F0F0F0"},
 
-  emptyContainer: {
-    alignItems: "center",
-    marginTop: hp(6),
-  },
-  emptyText: {
-    color: "#666",
-    fontSize: hp(1.8),
-  },
+  emptyContainer: {alignItems: "center", marginTop: hp(6)},
+  emptyText: {color: "#666", fontSize: hp(1.8)},
+
+  errorContainer: {padding: 16, alignItems: "center"},
+  errorText: {color: "red", marginBottom: 8},
+  retryBtn: {paddingHorizontal: 14, paddingVertical: 8, backgroundColor: theme.PRIMARY_COLOR, borderRadius: 8},
+  retryText: {color: "#fff", fontWeight: "600"},
 });

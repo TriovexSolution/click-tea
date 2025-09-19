@@ -1,339 +1,4 @@
-// // TeaAndCoffeeScreen.tsx
-// import React, { useCallback, useMemo } from "react";
-// import {
-//   View,
-//   Text,
-//   StyleSheet,
-//   FlatList,
-//   TouchableOpacity,
-//   Image,
-//   RefreshControl,
-//   SafeAreaView,
-//   StatusBar,
-//   Platform,
-// } from "react-native";
-// import { useSafeAreaInsets } from "react-native-safe-area-context";
-// import { useQuery, useQueryClient } from "@tanstack/react-query";
-// import { Ionicons } from "@expo/vector-icons";
-// import { LinearGradient } from "expo-linear-gradient";
-// import apiClient from "@/src/api/client";
-// import theme from "@/src/assets/colors/theme";
-// import { hp, wp } from "@/src/assets/utils/responsive";
-// import { useSelector, shallowEqual } from "react-redux";
-// import { useNavigation } from "@react-navigation/native";
 
-// /* ---------------- types ---------------- */
-// type RootState = any;
-// type Menu = {
-//   menuId: number;
-//   menuName: string;
-//   menuImage?: string | null;
-//   price?: number | null;
-//   qty?: string | null;
-// };
-// type ShopWithMenus = {
-//   shopId: number;
-//   shopName: string;
-//   shopImage?: string | null;
-//   distanceKm?: number | null;
-//   distanceMeters?: number | null;
-//   menus: Menu[];
-// };
-
-// /* ---------------- helpers ---------------- */
-// const RUPEE = "₹";
-// const formatPrice = (p?: number | string | null) => {
-//   const num = Number(p);
-//   return Number.isFinite(num) ? `${RUPEE}${Math.round(num)}` : "—";
-// };
-// const toMeters = (km?: number | null) =>
-//   typeof km === "number" && Number.isFinite(km)
-//     ? `${Math.round(km * 1000)}m`
-//     : "—";
-
-// /* ---------------- Menu Card ---------------- */
-// const MenuCard: React.FC<{ item: Menu; onPressMenu: (id: number) => void }> =
-//   React.memo(({ item, onPressMenu }) => {
-//     const base = apiClient?.defaults?.baseURL ?? "";
-//     const menuImage =
-//       item.menuImage &&
-//       (item.menuImage.startsWith("http") || item.menuImage.startsWith("data:"))
-//         ? item.menuImage
-//         : item.menuImage
-//         ? `${base.replace(/\/$/, "")}/uploads/menus/${item.menuImage}`
-//         : null;
-
-//     return (
-//       <TouchableOpacity
-//         activeOpacity={0.9}
-//         onPress={() => onPressMenu(item.menuId)}
-//         style={styles.menuCard}
-//       >
-//         <Image
-//           source={
-//             menuImage
-//               ? { uri: menuImage }
-//               : require("@/src/assets/images/onBoard1.png")
-//           }
-//           style={styles.menuImage}
-//           resizeMode="cover"
-//         />
-//         <View style={styles.menuContent}>
-//           <Text style={styles.menuName} numberOfLines={1}>
-//             {item.menuName}
-//           </Text>
-//           <Text style={styles.menuPrice}>{formatPrice(item.price)}</Text>
-//         </View>
-//       </TouchableOpacity>
-//     );
-//   });
-// MenuCard.displayName = "MenuCard";
-
-// /* ---------------- Shop Card ---------------- */
-// const ShopCard: React.FC<{
-//   shop: ShopWithMenus;
-//   onPressShop: (shopId: number) => void;
-//   onPressMenu: (id: number) => void;
-// }> = ({ shop, onPressShop, onPressMenu }) => {
-//   return (
-//     <View style={styles.shopCard}>
-//       <TouchableOpacity
-//         style={styles.shopHeader}
-//         activeOpacity={0.9}
-//         onPress={() => onPressShop(shop.shopId)}
-//       >
-//         <Image
-//           source={
-//             shop.shopImage
-//               ? { uri: shop.shopImage }
-//               : require("@/src/assets/images/onBoard1.png")
-//           }
-//           style={styles.shopImage}
-//         />
-//         <View style={{ flex: 1, marginLeft: wp(3) }}>
-//           <Text style={styles.shopName}>{shop.shopName}</Text>
-//           {typeof shop.distanceKm === "number" && (
-//             <Text style={styles.shopDistance}>{toMeters(shop.distanceKm)}</Text>
-//           )}
-//         </View>
-//         <Ionicons name="chevron-forward" size={18} color="#666" />
-//       </TouchableOpacity>
-
-//       {/* Menus */}
-//       <FlatList
-//         data={shop.menus}
-//         keyExtractor={(m) => String(m.menuId)}
-//         horizontal
-//         showsHorizontalScrollIndicator={false}
-//         contentContainerStyle={{ paddingHorizontal: wp(3) }}
-//         renderItem={({ item }) => (
-//           <MenuCard item={item} onPressMenu={onPressMenu} />
-//         )}
-//       />
-//     </View>
-//   );
-// };
-
-// /* ---------------- Screen ---------------- */
-// const TeaAndCoffeeScreen: React.FC = () => {
-//   const insets = useSafeAreaInsets();
-//   const navigation = useNavigation<any>();
-//   const queryClient = useQueryClient();
-
-//   const location = useSelector((s: RootState) => s.location, shallowEqual);
-//   const lat = location?.latitude;
-//   const lng = location?.longitude;
-
-//   const {
-//     data: shops = [],
-//     isLoading,
-//     isFetching,
-//     isError,
-//     refetch,
-//   } = useQuery<ShopWithMenus[]>({
-//     queryKey: ["nearbyTeaCoffeeShops", lat, lng],
-//     queryFn: async () => {
-//       if (!lat || !lng) return [];
-//       const res = await apiClient.get("/api/menu/nearby/tea-coffee", {
-//         params: { lat, lng },
-//       });
-//       const payload = res?.data;
-//       return Array.isArray(payload?.data) ? payload.data : [];
-//     },
-//     enabled: !!lat && !!lng,
-//     staleTime: 30_000,
-//     cacheTime: 120_000,
-//     refetchOnWindowFocus: false,
-//     retry: 1,
-//   });
-
-//   const onRefresh = useCallback(async () => {
-//     try {
-//       await queryClient.invalidateQueries({
-//         queryKey: ["nearbyTeaCoffeeShops", lat, lng],
-//       });
-//       await refetch();
-//     } catch (err) {
-//       console.warn("refresh error", err);
-//     }
-//   }, [queryClient, refetch, lat, lng]);
-
-//   const openMenu = useCallback(
-//     (menuId: number) => {
-//       navigation.navigate("menuDetailScreen", { menuId });
-//     },
-//     [navigation]
-//   );
-
-//   const openShop = useCallback(
-//     (shopId: number) => {
-//       navigation.navigate("shopDetailScreen", { shopId });
-//     },
-//     [navigation]
-//   );
-
-//   const renderShop = useCallback(
-//     ({ item }: { item: ShopWithMenus }) => (
-//       <ShopCard shop={item} onPressShop={openShop} onPressMenu={openMenu} />
-//     ),
-//     [openShop, openMenu]
-//   );
-
-//   const showNoLocation = !lat || !lng;
-//   const isEmpty = !isLoading && Array.isArray(shops) && shops.length === 0;
-
-//   return (
-//     <SafeAreaView style={[styles.safe,]}>
-//       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
-
-//       {/* <LinearGradient colors={["#fff", "#fff"]} style={styles.header}> */}
-//       <View style={styles.header}>
-//         <Text style={styles.title}>Tea & Coffee near you</Text>
-//         <Text style={styles.subtitle}>
-//           Only items within 1 km · Fresh & local
-//         </Text>
-//       </View>
-//       {/* </LinearGradient> */}
-
-//       {showNoLocation ? (
-//         <View style={styles.center}>
-//           <Ionicons
-//             name="location-outline"
-//             size={72}
-//             color={theme.PRIMARY_COLOR}
-//           />
-//           <Text style={styles.centerText}>Location not set</Text>
-//           <Text style={styles.centerSub}>
-//             Allow location or set it to see nearby shops.
-//           </Text>
-//         </View>
-//       ) : isLoading ? (
-//         <View style={styles.center}>
-//           <Text>Loading...</Text>
-//         </View>
-//       ) : isError ? (
-//         <View style={styles.center}>
-//           <Text style={{ color: "red" }}>Failed to load shops.</Text>
-//         </View>
-//       ) : (
-//         <FlatList
-//           data={shops}
-//           renderItem={renderShop}
-//           keyExtractor={(it) => String(it.shopId)}
-//           refreshControl={
-//             <RefreshControl
-//               refreshing={isFetching}
-//               onRefresh={onRefresh}
-//               tintColor={theme.PRIMARY_COLOR}
-//             />
-//           }
-//           ListEmptyComponent={
-//             isEmpty ? (
-//               <View style={styles.center}>
-//                 <Ionicons name="cafe-outline" size={48} color="#999" />
-//                 <Text style={styles.centerText}>
-//                   No tea/coffee shops nearby
-//                 </Text>
-//               </View>
-//             ) : null
-//           }
-//           contentContainerStyle={{ paddingBottom: hp(12), paddingTop: hp(1) }}
-//         />
-//       )}
-//     </SafeAreaView>
-//   );
-// };
-
-// export default TeaAndCoffeeScreen;
-
-// /* ---------------- styles ---------------- */
-// const styles = StyleSheet.create({
-//   safe: { flex: 1, backgroundColor: "#fff" },
-//   header: {
-//     // backgroundColor: "#efe7ff",
-//     backgroundColor: "#EADDCA",
-//     // backgroundColor: "#F2D2BD",
-//     // backgroundColor: "#F5DEB3",
-//     // backgroundColor: "#F2D2BD",
-//     paddingHorizontal: wp(4),
-//     paddingVertical: hp(2),
-//     paddingTop: Platform.OS === "android" ? hp(7) : 0,
-//   },
-//   title: { fontSize: hp(2.6), fontWeight: "800", color: "#222" },
-//   subtitle: { color: "#666", marginTop: hp(0.4), fontSize: hp(1.6) },
-
-//   center: { marginTop: hp(8), alignItems: "center" },
-//   centerText: { fontSize: hp(2), fontWeight: "700", marginTop: hp(1) },
-//   centerSub: {
-//     color: "#777",
-//     marginTop: hp(0.6),
-//     textAlign: "center",
-//     paddingHorizontal: wp(6),
-//   },
-
-//   shopCard: {
-//     backgroundColor: "#fff",
-//     borderRadius: 12,
-//     marginVertical: hp(1),
-//     marginHorizontal: wp(3),
-//     shadowColor: "#000",
-//     shadowOpacity: 0.05,
-//     shadowRadius: 6,
-//     shadowOffset: { width: 0, height: 2 },
-//     elevation: 2,
-//   },
-//   shopHeader: {
-//     flexDirection: "row",
-//     alignItems: "center",
-//     padding: wp(3),
-//   },
-//   shopImage: {
-//     width: wp(14),
-//     height: wp(14),
-//     borderRadius: wp(7),
-//     backgroundColor: "#eee",
-//   },
-//   shopName: { fontSize: hp(2), fontWeight: "700", color: "#222" },
-//   shopDistance: { color: "#666", fontSize: hp(1.4), marginTop: 2 },
-
-//   menuCard: {
-//     width: wp(32),
-//     marginRight: wp(3),
-//     backgroundColor: "#fafafa",
-//     borderRadius: 10,
-//     overflow: "hidden",
-//   },
-//   menuImage: { width: "100%", height: wp(24), backgroundColor: "#eee" },
-//   menuContent: { padding: wp(2) },
-//   menuName: { fontSize: hp(1.6), fontWeight: "600", color: "#222" },
-//   menuPrice: { fontSize: hp(1.5), color: theme.PRIMARY_COLOR, marginTop: 2 },
-// });
-// TeaAndCoffeeScreen.tsx
-// TeaAndCoffeeScreen.tsx
-// TeaAndCoffeeScreen.tsx
-// TeaAndCoffeeScreen.tsx
-// TeaAndCoffeeScreen.tsx
-// TeaAndCoffeeScreen.js
 import React, { useCallback, useMemo, useRef, useEffect, useState } from "react";
 import {
   View,
@@ -343,7 +8,6 @@ import {
   Pressable,
   Image,
   RefreshControl,
-  SafeAreaView,
   StatusBar,
   Platform,
   Dimensions,
@@ -353,7 +17,7 @@ import {
   ToastAndroid,
   ScrollView,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import apiClient from "@/src/api/client";
@@ -364,6 +28,8 @@ import { addToCartAsync, fetchCartAsync } from "@/src/Redux/Slice/cartSlice";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { BestSellerRow, ShopGrouped } from "@/src/assets/types/userDataType";
+import CommonHeader from "@/src/Common/CommonHeader";
+import CommonStatusHeader from "@/src/Common/CommonStatusHeader";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
@@ -708,20 +374,20 @@ const TeaAndCoffeeBestSellersScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={[styles.safe,]}
+    <SafeAreaProvider style={[styles.safe,]}
     // { paddingTop: Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0 }]}
     >
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
-      <View style={styles.header}>
+      {/* <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} style={{ padding: 6 }}>
-          <Ionicons name="chevron-back-outline" size={hp(4)} />
+          <Ionicons name="chevron-back-outline" size={hp(3.5)} />
         </Pressable>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Tea & Coffee — Best Sellers</Text>
           <Text style={styles.subtitle}>Discover popular items near you</Text>
         </View>
-      </View>
-
+      </View> */}
+<CommonStatusHeader bgColor="#EADDCA" title="Tea & Coffee - Best Selleres"/>
       {isLoading ? (
         <View style={{ paddingHorizontal: wp(3), paddingTop: hp(2) }}>
           <SkeletonList />
@@ -762,7 +428,7 @@ const TeaAndCoffeeBestSellersScreen: React.FC = () => {
           <Text style={styles.centerText}>No Best Sellers Right Now</Text>
         </View>
       )}
-    </SafeAreaView>
+    </SafeAreaProvider>
   );
 };
 
@@ -772,7 +438,7 @@ const styles = StyleSheet.create({
   header: {
      paddingTop: Platform.OS === "android" ? hp(7) : 0,
     backgroundColor: "#EADDCA",
-    paddingHorizontal: wp(4),
+    paddingHorizontal: wp(2),
     paddingVertical: hp(1.2),
     flexDirection: "row",
     alignItems: "center",

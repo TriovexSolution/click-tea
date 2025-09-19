@@ -536,7 +536,7 @@ const changePassword = async (req, res) => {
       return res.status(400).json({ message: "Old and new password required" });
     }
 
-    const [users] = await db.query("SELECT * FROM users WHERE id = ?", [req.user.id]);
+    const [users] = await db.query("SELECT * FROM users WHERE id = ?", [req.user.userId]);
     if (users.length === 0) return res.status(404).json({ message: "User not found" });
 
     const user = users[0];

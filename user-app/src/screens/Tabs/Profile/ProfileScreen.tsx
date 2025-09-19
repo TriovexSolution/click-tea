@@ -233,6 +233,7 @@ import CommonHeader from "@/src/Common/CommonHeader";
 import { userProfileDataType } from "@/src/assets/types/userDataType";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import axiosClient from "@/src/api/client";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 /* ---------------- MENU CONFIG ---------------- */
 const MENU_ITEMS = [
@@ -240,8 +241,11 @@ const MENU_ITEMS = [
   { icon: "lock-closed-outline", label: "Change Password", route: "changePasswordScreen" },
   { icon: "time-outline", label: "Order History", route: "orderScreen" },
   { icon: "wallet-outline", label: "Coin Wallet", route: "coinWalletScreen" },
-  { icon: "gift-outline", label: "Offer & Coupons", route: "Coupons" },
+  { icon: "gift-outline", label: "Offer & Coupons", route: "offferScreen" },
+  { icon: "newspaper-outline", label: "Terms & Conditions", route: "termsAndConditionScreen" },
+  { icon: "chatbubbles-outline", label: "FAQs", route: "faqScreen" },
   { icon: "notifications-outline", label: "Manage Notifications", route: "Notifications" },
+  { icon: "information-circle-outline", label: "About Us", route: "aboutUsScreen" },
 ];
 
 /* ---------------- MENU ITEM ---------------- */
@@ -287,14 +291,33 @@ const ProfileScreen = () => {
     return () => controller.abort();
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      const cleanup = fetchProfile();
-      return () => {
-        if (typeof cleanup === "function") cleanup();
-      };
-    }, [fetchProfile])
-  );
+useFocusEffect(
+  useCallback(() => {
+    let isActive = true;
+
+    const getProfile = async () => {
+      if (!profile) setLoading(true); // only first time
+      try {
+        const token = await AsyncStorage.getItem("authToken");
+        if (!token) return;
+
+        const res = await axiosClient.get(`${BASE_URL}/api/profile`);
+        if (isActive) setProfile(res.data);
+      } catch (err: any) {
+        console.error(err?.response?.data ?? err);
+      } finally {
+        if (isActive) setLoading(false);
+      }
+    };
+
+    getProfile();
+
+    return () => {
+      isActive = false;
+    };
+  }, [profile])
+);
+
 
   /* ---------------- Logout ---------------- */
   const handleLogout = useCallback(() => {
@@ -330,7 +353,7 @@ const ProfileScreen = () => {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <CommonHeader title="Profile" />
 
       {/* Profile Header */}
@@ -376,7 +399,7 @@ const ProfileScreen = () => {
           index,
         })}
       />
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -416,7 +439,7 @@ const styles = StyleSheet.create({
   menuText: { fontSize: hp(2), color: "#222" },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: "#eee", marginLeft: wp(12) },
 
-  listContent: { paddingVertical: hp(1) },
+  listContent: { paddingVertical: hp(1) ,paddingBottom:hp(7)},
   logoutRow: {
     flexDirection: "row",
     alignItems: "center",

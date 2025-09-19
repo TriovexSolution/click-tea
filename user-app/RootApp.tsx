@@ -31,11 +31,13 @@ import { useAuth } from "./src/context/authContext"; // ensure path is correct
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { useFonts } from "expo-font";
+import { selectSelectedShopId } from "./src/Redux/Slice/selectedShopSlice";
+import { fetchCartAllAsync, fetchCartAsync } from "./src/Redux/Slice/cartSlice";
 const RootApp = () => {
   const dispatch = useDispatch();
   const profile = useSelector((state: RootState) => state.profile.data);
   // console.log(profile,"RootApp");
-  
+  const shopId = useSelector(selectSelectedShopId);
   const { isLoading: authRestoring, isLoggedIn } = useAuth();
   const [fontsLoaded] = useFonts({
     "Oswald-Bold": require("./src/assets/fonts/Oswald-Bold.ttf"),
@@ -52,19 +54,19 @@ const RootApp = () => {
   //     dispatch(fetchUserProfile() as any);
   //   }
   // }, [authRestoring, isLoggedIn, profile, dispatch]);
-    React.useEffect(() => {
+    useEffect(() => {
     if (!authRestoring && isLoggedIn && !profile) {
       dispatch(fetchUserProfile() as any);
     }
   }, [authRestoring, isLoggedIn, profile, dispatch]);
-  if (!fontsLoaded) {
-    // Show a simple loader while fonts are loading
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#562E19" />
-      </View>
-    );
-  }
+
+  // ✅ Fetch cart when user logged in + shopId available
+  useEffect(() => {
+    if (!authRestoring && isLoggedIn && shopId) {
+     // dispatch(fetchCartAsync({ shopId, force: true }) as any);
+     dispatch(fetchCartAllAsync());
+    }
+  }, [authRestoring, isLoggedIn, shopId, dispatch]);
   return (
     <SafeAreaProvider style={{ flex: 1, backgroundColor: "white" }}>
       {/* <StatusBar hidden /> */}

@@ -523,6 +523,8 @@ const ManageBestSellerScreen = () => {
               const res = await axiosClient.post(`${BASE_URL}/api/best-sellers/bulk`, {
                 menuIds: highlightedIds,
               });
+              console.log(res,"res");
+              
               if (res?.data?.success) {
                 // refreshed list from response? if response returns bestMenuIds you can use it.
                 const bestRes = await axiosClient.get(`${BASE_URL}/api/best-sellers/me`);

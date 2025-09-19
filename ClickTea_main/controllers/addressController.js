@@ -3,7 +3,7 @@ const db = require("../config/db");
 // Add new address for logged-in user
 const addNewAddress = async (req, res) => {
   try {
-    const userId = req.user.id; // assuming req.user has user info from auth middleware
+    const userId = req.user.userId; // assuming req.user has user info from auth middleware
     const {
       fullName,
       phoneNumber,
@@ -37,7 +37,7 @@ const addNewAddress = async (req, res) => {
 
 const getAddressList = async (req, res) => {
   try {
-    const userId = req.user.id; // from auth middleware
+    const userId = req.user.userId; // from auth middleware
 
     const [rows] = await db.query(
       `SELECT 

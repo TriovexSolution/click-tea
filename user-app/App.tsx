@@ -92,44 +92,142 @@
 // };
 
 // export default App;
-// App.tsx (root)
-import React from "react";
-import { View, ActivityIndicator, StatusBar } from "react-native";
+// // App.tsx (root)import React, { useEffect } from "react";
+// import { Provider } from "react-redux";
+// import { PersistGate } from "redux-persist/integration/react";
+// import { store, persistor } from "./src/Redux/store";
+// import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+// import { AddressProvider } from "./src/context/addressContext";
+// import { AuthProvider } from "./src/context/authContext";
+// import { BASE_URL } from "./api";
+// import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+// import { GestureHandlerRootView } from "react-native-gesture-handler";
+// import RootApp from "./RootApp";
+// import * as NavigationBar from "expo-navigation-bar";
+// import { useEffect } from "react";
+// import { Platform } from "react-native";
+// import { TabBarVisibilityProvider } from "./src/context/TabBarVisibilityContext";
+
+// const queryClient = new QueryClient({
+//   defaultOptions: {
+//     queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 1000 * 60 },
+//   },
+// });
+// const SERVER_URL = `${BASE_URL}`;
+
+// const App = () => {
+//   useEffect(() => {
+//     if (Platform.OS === "android") {
+//       // Hide system nav bar (Zerodha style)
+//       NavigationBar.setVisibilityAsync("hidden");
+//       NavigationBar.setBehaviorAsync("overlay-swipe");
+//       NavigationBar.setBackgroundColorAsync("transparent");
+//     }
+//   }, []);
+
+//   return (
+//     <GestureHandlerRootView style={{ flex: 1 }}>
+//       <Provider store={store}>
+//         <PersistGate loading={null} persistor={persistor}>
+//           <QueryClientProvider client={queryClient}>
+//             <AddressProvider>
+//               <AuthProvider>
+//                 <BottomSheetModalProvider>
+//                   <TabBarVisibilityProvider>
+//                   <RootApp />
+//                   </TabBarVisibilityProvider>
+//                 </BottomSheetModalProvider>
+//               </AuthProvider>
+//             </AddressProvider>
+//           </QueryClientProvider>
+//         </PersistGate>
+//       </Provider>
+//     </GestureHandlerRootView>
+//   );
+// };
+
+// export default App;
+// App.tsx
 import { Provider } from "react-redux";
 import { PersistGate } from "redux-persist/integration/react";
 import { store, persistor } from "./src/Redux/store";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AddressProvider } from "./src/context/addressContext";
 import { AuthProvider } from "./src/context/authContext";
-import StackNavigatorScreens from "./src/screens/StackNavigatorScreens";
 import { BASE_URL } from "./api";
-import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import AppServices from "./src/services/AppServices";
 import RootApp from "./RootApp";
-import OfflineNotice from "./src/components/OfflineNotice";
+import * as NavigationBar from "expo-navigation-bar";
+import React, { useEffect } from "react";
+import { Platform, AppState } from "react-native";
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 1000 * 60 },
   },
 });
-const SERVER_URL = `${BASE_URL}`; 
+const SERVER_URL = `${BASE_URL}`;
+
 const App = () => {
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+
+    let mounted = true;
+
+    // Helper that attempts to set nav bar state but swallows unsupported warnings.
+    const applyNavBarSettings = async () => {
+      try {
+        // hide/show visibility is the most broadly supported action
+        await NavigationBar.setVisibilityAsync("hidden");
+      } catch (err) {
+        // device may not support hide — safe to ignore in production
+        // optional: you can log at debug level
+        console.debug("NavigationBar.setVisibilityAsync failed (ignored).", err);
+      }
+
+      // Try to set behavior & background color when supported — swallow expected warnings.
+      try {
+        await NavigationBar.setBehaviorAsync("overlay-swipe");
+      } catch (err) {
+        // expected on edge-to-edge devices — ignore
+      }
+
+      try {
+        await NavigationBar.setBackgroundColorAsync("transparent");
+      } catch (err) {
+        // expected on some devices — ignore
+      }
+    };
+
+    // Apply initially
+    applyNavBarSettings();
+
+    // Re-apply on resume (AppState 'active') to handle process death / OS changes
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (!mounted) return;
+      if (next === "active") {
+        // Re-apply in background/foreground transitions
+        applyNavBarSettings();
+      }
+    });
+
+    return () => {
+      mounted = false;
+      // cleanup subscription
+      subscription.remove();
+    };
+  }, []);
+
   return (
- <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <Provider store={store}>
         <PersistGate loading={null} persistor={persistor}>
           <QueryClientProvider client={queryClient}>
             <AddressProvider>
               <AuthProvider>
                 <BottomSheetModalProvider>
-                  {/* <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
-                    <StatusBar hidden />
-                    <StackNavigatorScreens />
-                  </SafeAreaView> */}
-                    {/* <OfflineNotice /> */}
-                  <RootApp/>
+                    <RootApp />
                 </BottomSheetModalProvider>
               </AuthProvider>
             </AddressProvider>

@@ -85,7 +85,7 @@ const MAX_SELECTION = 2;
 const setBestSellersBulk = asyncHandler(async (req, res) => {
   const { menuIds = [] } = req.body;
   const shopId = req.user.shopId;
-  const changedBy = req.user?.id ?? null;
+  const changedBy = req.user?.userId ?? null;
 
   if (!shopId) return res.status(403).json({ message: "Shop not found for this user" });
 

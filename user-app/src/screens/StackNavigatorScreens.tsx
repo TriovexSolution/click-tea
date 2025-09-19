@@ -157,6 +157,10 @@ import ForgotPasswordScreen from "./auth/Password/ForgotPasswordScreen";
 import ResetPasswordScreen from "./auth/Password/ResetPasswordScreen";
 import EditProfileScreen from "./Tabs/Profile/EditProfileScreen";
 import TeaAndCoffeeScreen from "./Tabs/Home/Menu/TeaAndCoffeeScreen";
+import OfferScreen from "./Tabs/Profile/OfferScreen/OfferScreen";
+import TermsAndCondition from "./Tabs/Profile/Terms&Condition/TermsAndCondition";
+import FaqScreen from "./Tabs/Profile/FAQ/FaqScreen";
+import AboutUsScreen from "./Tabs/Profile/About Us/AboutUsScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -201,7 +205,11 @@ const StackNavigatorScreens: React.FC = () => {
             <Stack.Screen name="searchScreen" component={SearchScreen} />
             <Stack.Screen name="changePasswordScreen" component={ChangePasswordScreen} />
             <Stack.Screen name="coinWalletScreen" component={CoinWalletScreen} />
+            <Stack.Screen name="offferScreen" component={OfferScreen} />
             <Stack.Screen name="editProfileScreen" component={EditProfileScreen} />
+            <Stack.Screen name="termsAndConditionScreen" component={TermsAndCondition} />
+            <Stack.Screen name="faqScreen" component={FaqScreen} />
+            <Stack.Screen name="aboutUsScreen" component={AboutUsScreen} />
       
             <Stack.Screen name="bottomTabScreen" component={BottomTabs} />
           </>

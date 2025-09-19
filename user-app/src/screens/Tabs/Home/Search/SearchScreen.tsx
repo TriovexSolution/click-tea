@@ -468,7 +468,7 @@ const SearchScreen: React.FC = () => {
             accessibilityRole="button"
             accessibilityLabel="Go back"
           >
-            <Ionicons name="arrow-back" size={Math.round(FONT_SIZE * 1.6)} color="#4a2770" />
+            <Ionicons name="chevron-back-outline" size={Math.round(FONT_SIZE * 1.6)} color="#4a2770" />
           </TouchableOpacity>
 
           <View style={styles.searchCardWrapper}>

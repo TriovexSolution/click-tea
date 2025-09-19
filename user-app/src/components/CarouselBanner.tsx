@@ -1,74 +1,71 @@
-// CarouselBanner.tsx
-import React, { useRef, useState, useEffect } from "react";
-import {
-  View,
-  FlatList,
-  Image,
-  StyleSheet,
-  Dimensions,
-  TouchableOpacity,
-} from "react-native";
+import React, { useRef } from "react";
+import { View, Image, StyleSheet, Dimensions } from "react-native";
+import Carousel from "react-native-reanimated-carousel";
+import Animated, {
+  interpolate,
+  useAnimatedStyle,
+  Extrapolate,
+  useSharedValue,
+} from "react-native-reanimated";
 import { hp } from "../assets/utils/responsive";
 
 const { width } = Dimensions.get("window");
 
-interface BannerProps {
-  data: any[];
-  autoPlay?: boolean;
-  interval?: number;
-}
-
-const CarouselBanner: React.FC<BannerProps> = ({ data, autoPlay = true, interval = 3000 }) => {
-  const flatListRef = useRef<FlatList>(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
-
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (autoPlay && data.length > 1) {
-      timer = setInterval(() => {
-        const nextIndex = (currentIndex + 1) % data.length;
-        flatListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
-        setCurrentIndex(nextIndex);
-      }, interval);
-    }
-    return () => clearInterval(timer);
-  }, [currentIndex, autoPlay, data.length, interval]);
-
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    if (viewableItems.length > 0) {
-      setCurrentIndex(viewableItems[0].index);
-    }
-  }).current;
+const CarouselBanner = ({ data }: { data: any[] }) => {
+  // shared value from Reanimated
+  const progressValue = useSharedValue(0);
 
   return (
     <View style={styles.container}>
-      <FlatList
-        ref={flatListRef}
+      <Carousel
+        loop
+        width={width}
+        height={hp(18)}
+        autoPlay
+        autoPlayInterval={2500}
         data={data}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        keyExtractor={(_, index) => index.toString()}
+        scrollAnimationDuration={900}
+        onProgressChange={(_, absoluteProgress) => {
+          // Carousel passes absolute progress (float) → save to shared value
+          progressValue.value = absoluteProgress;
+        }}
         renderItem={({ item }) => (
-          <TouchableOpacity activeOpacity={0.9}>
-            <Image source={item.image} style={styles.bannerImage} />
-          </TouchableOpacity>
+          <Image source={item.image} style={styles.bannerImage} />
         )}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={{ viewAreaCoveragePercentThreshold: 50 }}
       />
 
-      {/* Pagination Dots */}
+      {/* Smooth Interpolated Pagination */}
       <View style={styles.pagination}>
-        {data.map((_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.dot,
-              currentIndex === index ? styles.activeDot : null,
-            ]}
-          />
-        ))}
+        {data.map((_, index) => {
+          const animatedDotStyle = useAnimatedStyle(() => {
+            const scale = interpolate(
+              progressValue.value,
+              [index - 1, index, index + 1],
+              [0.8, 1.6, 0.8],
+              Extrapolate.CLAMP
+            );
+
+            const opacity = interpolate(
+              progressValue.value,
+              [index - 1, index, index + 1],
+              [0.4, 1, 0.4],
+              Extrapolate.CLAMP
+            );
+
+            return {
+              transform: [{ scale }],
+              opacity,
+              backgroundColor: "#333",
+            };
+          });
+
+          return (
+            <Animated.View
+              key={index}
+              style={[styles.dot, animatedDotStyle]}
+            />
+          );
+        })}
       </View>
     </View>
   );
@@ -88,18 +85,13 @@ const styles = StyleSheet.create({
   pagination: {
     flexDirection: "row",
     justifyContent: "center",
-    marginTop: 8,
+    marginTop: 10,
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#ccc",
-    marginHorizontal: 4,
-  },
-  activeDot: {
-    backgroundColor: "#333",
-    width: 12,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginHorizontal: 5,
   },
 });
 

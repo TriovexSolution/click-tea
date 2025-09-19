@@ -10,6 +10,7 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  StatusBar,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { hp, wp } from "@/src/assets/utils/responsive";
@@ -18,6 +19,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import CommonHeader from "@/src/Common/CommonHeader";
 import { useAuth } from "@/src/context/authContext";
 import axiosClient from "@/src/api/client";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const CoinWalletScreen = () => {
   const { token } = useAuth();
@@ -107,7 +109,12 @@ const CoinWalletScreen = () => {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
+            <StatusBar
+        barStyle="dark-content"   // or "light-content" depending on your background
+        backgroundColor="#F6F4F1" // same as your screen background
+        translucent={false}       // false ensures the content is below status bar
+      />
       <CommonHeader title="Coin Wallet" />
 
       {/* 🔹 Wallet Balance Card */}
@@ -180,7 +187,7 @@ const CoinWalletScreen = () => {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 };
 

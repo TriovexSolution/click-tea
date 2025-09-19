@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Pressable,
+  StatusBar,
 } from "react-native";
 import { useForm, Controller } from "react-hook-form";
 import { Ionicons } from "@expo/vector-icons"; // ✅ works with Expo
@@ -70,6 +71,11 @@ const ChangePasswordScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container}>
+            <StatusBar
+        barStyle="dark-content"   // or "light-content" depending on your background
+        backgroundColor="#F6F4F1" // same as your screen background
+        translucent={false}       // false ensures the content is below status bar
+      />
       <CommonHeader title="Change Password" />
 
       <View style={styles.formWrapper}>

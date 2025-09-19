@@ -18,6 +18,7 @@ import {
   Pressable,
   InteractionManager,
   Platform,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -25,14 +26,14 @@ import { hp, wp } from "@/src/assets/utils/responsive";
 import { useSelector, useDispatch, shallowEqual } from "react-redux";
 import { selectSelectedShopId } from "@/src/Redux/Slice/selectedShopSlice";
 import type { cartDataType } from "@/src/assets/types/userDataType";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios, { AxiosResponse } from "axios";
-import { BASE_URL } from "@/api";
 import theme from "@/src/assets/colors/theme";
 import {
   removeFromCartAsync,
   updateCartItemAsync,
   fetchCartAsync,
+  resetCart,
+  fetchCartAllAsync,
 } from "@/src/Redux/Slice/cartSlice";
 import Animated, {
   useSharedValue,
@@ -42,7 +43,6 @@ import Animated, {
   withSequence,
   withRepeat,
   cancelAnimation,
-  interpolate,
   runOnJS,
 } from "react-native-reanimated";
 import CommonHeader from "@/src/Common/CommonHeader";
@@ -55,33 +55,29 @@ import {
 } from "@gorhom/bottom-sheet";
 import { LinearGradient } from "expo-linear-gradient";
 import axiosClient from "@/src/api/client";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
+import { GST_PERCENT_DISPLAY, GST_RATE } from "@/src/config/tax";
 
-/* ---------- api instance (shared) ---------- */
-// const api = axios.create({ baseURL: BASE_URL, timeout: 15000 });
 const api = axiosClient;
 
-/* ---------- constants ---------- */
 const ITEM_ROW_MIN_HEIGHT = hp(12);
 const ITEM_VERTICAL_SPACING = hp(1.5) * 2 + 1;
 const APPROX_ITEM_HEIGHT = ITEM_ROW_MIN_HEIGHT + ITEM_VERTICAL_SPACING;
-
-/* ---------- fun / flirty + funny messages ---------- */
 const messages = [
-  // Flirty 💘
   "Your cart feels lonely… maybe it needs a date with some cool products 😉",
   "Cart’s lonely… wanna keep it company? 😉",
   "I promise your cart looks hotter when it’s full 🔥",
   "An empty cart is like a missed text… don’t leave it hanging 🥺",
   "Don’t ghost your cart… it misses you 😏💌",
-
-  // Funny 😂
   "Oops! Your cart’s on a diet 🥗",
   "Your cart is emptier than my fridge at midnight 🍫",
   "This cart is emptier than my wallet at month-end 💸",
   "Looks like your cart went on vacation 🌴",
 ];
 
-/* ---------- CartItemRow (defensive + shows per-item loading) ---------- */
 type CartItemRowProps = {
   item: cartDataType;
   isUpdating?: boolean;
@@ -236,10 +232,23 @@ const CartItemRow = React.memo(function CartItemRow({
   );
 });
 
-/* ---------- CartScreen (production-ready) ---------- */
+const showToast = (msg: string) => {
+  if (Platform.OS === "android") ToastAndroid.show(msg, ToastAndroid.SHORT);
+  else Alert.alert("", msg);
+};
+// group cart items by shopId -> { [shopId]: { shopId, items: [...] } }
+const groupByShop = (items: cartDataType[]) => {
+  return items.reduce<Record<number, { shopId: number; items: cartDataType[] }>>((acc, it) => {
+    const sid = Number((it as any).shopId ?? 0);
+    if (!acc[sid]) acc[sid] = { shopId: sid, items: [] };
+    acc[sid].items.push(it);
+    return acc;
+  }, {});
+};
+
 const CartScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<any>();
   const shopId = useSelector(selectSelectedShopId);
   const coinBalance = useSelector(
     (s: RootState) => s.profile.data?.coinBalance ?? 0,
@@ -247,21 +256,25 @@ const CartScreen: React.FC = () => {
   );
 
   const [cartData, setCartData] = useState<cartDataType[]>([]);
+  const cartDataRef = useRef<cartDataType[]>([]);
   const [loading, setLoading] = useState(false);
   const [updatingMap, setUpdatingMap] = useState<Record<number, boolean>>({});
   const [useCoins, setUseCoins] = useState(false);
   const [showFooterUI, setShowFooterUI] = useState(false);
-  const [modalType, setModalType] = useState<"toPay" | "proceed" | null>(null);
+  const [modalType, setModalType] = useState<
+    "toPay" | "proceed" | "deliveryInstruction" | null
+  >(null);
   const [processingPayment, setProcessingPayment] = useState(false);
+
+  const [deliveryNoteLocal, setDeliveryNoteLocal] = useState<string>("");
 
   const { selectedAddress } = useAddress();
   const mountedRef = useRef(true);
   const fetchAbortRef = useRef<AbortController | null>(null);
-  const bottomSheetRef = useRef<any>(null);
+  const bottomSheetRef = useRef<BottomSheetModal | null>(null);
   const snapPoints = useMemo(() => [hp(45)], []);
 
   const [randomMsg, setRandomMsg] = useState("");
-  // batching helpers
   const tapTimeoutsRef = useRef<Record<number, number | null>>({});
   const queuedDeltasRef = useRef<Record<number, number>>({});
 
@@ -270,15 +283,18 @@ const CartScreen: React.FC = () => {
     return () => {
       mountedRef.current = false;
       fetchAbortRef.current?.abort();
-      // clear all timeouts
       Object.values(tapTimeoutsRef.current).forEach(
         (t) => t && clearTimeout(t as number)
       );
       tapTimeoutsRef.current = {};
       queuedDeltasRef.current = {};
-      // floating cleanup handled below in stopFloat cleanup
     };
   }, []);
+
+  // keep ref in sync to avoid stale closures inside timers
+  useEffect(() => {
+    cartDataRef.current = cartData;
+  }, [cartData]);
 
   const setItemUpdating = useCallback((cartId: number, val: boolean) => {
     setUpdatingMap((prev) => {
@@ -289,6 +305,7 @@ const CartScreen: React.FC = () => {
     });
   }, []);
 
+  // fetch ALL shops cart and flatten
   const fetchLocalCart = useCallback(async () => {
     setLoading(true);
     fetchAbortRef.current?.abort();
@@ -296,33 +313,40 @@ const CartScreen: React.FC = () => {
     fetchAbortRef.current = controller;
 
     try {
-      // const token = await AsyncStorage.getItem("authToken");
-      const res: AxiosResponse = await api.get(`/api/cart/${shopId}`, {
-        // headers: token ? { Authorization: `Bearer ${token}` } : {},
+      // server: GET /api/cart -> grouped [{ shopId, shopname, items: [...] }, ...]
+      const res: AxiosResponse = await api.get(`/api/cart`, {
         signal: controller.signal as any,
       });
 
-      const payload = Array.isArray(res.data)
-        ? res.data
-        : res.data?.items ?? res.data?.data ?? res.data?.cartItems ?? [];
+      const payload = Array.isArray(res.data) ? res.data : [];
 
       InteractionManager.runAfterInteractions(() => {
         if (!mountedRef.current) return;
-        const safe = Array.isArray(payload)
-          ? payload.filter((p) => p && typeof p === "object")
-          : [];
-        setCartData(safe as cartDataType[]);
+        // flatten grouped response into same shape your UI expects (array of cart items)
+        const flattened: cartDataType[] = [];
+        payload.forEach((grp: any) => {
+          const items = Array.isArray(grp.items) ? grp.items : [];
+          items.forEach((it: any) => {
+            flattened.push({ ...(it || {}), shopId: grp.shopId, shopname: grp.shopname } as any);
+          });
+        });
+
+        // Also handle case server returned already flattened array
+        if (flattened.length === 0 && Array.isArray(res.data) && res.data.length && res.data[0]?.cartId) {
+          setCartData(res.data as cartDataType[]);
+        } else {
+          setCartData(flattened);
+        }
       });
     } catch (err: any) {
       if (!(err?.name === "CanceledError" || err?.message === "canceled")) {
         console.error("Cart fetch error:", err);
-        if (mountedRef.current)
-          ToastAndroid.show("Failed to load cart", ToastAndroid.SHORT);
+        if (mountedRef.current) showToast("Failed to load cart");
       }
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [shopId]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -330,44 +354,39 @@ const CartScreen: React.FC = () => {
     }, [fetchLocalCart])
   );
 
-  /* ---------- Remove handler (clears queued batches for item) ---------- */
   const handleRemoveRequested = useCallback(
     async (cartId: number) => {
-      // cancel pending batch for this item
       if (tapTimeoutsRef.current[cartId]) {
         clearTimeout(tapTimeoutsRef.current[cartId] as number);
         delete tapTimeoutsRef.current[cartId];
       }
-      if (queuedDeltasRef.current[cartId])
-        delete queuedDeltasRef.current[cartId];
+      if (queuedDeltasRef.current[cartId]) delete queuedDeltasRef.current[cartId];
 
       setItemUpdating(cartId, true);
-      const prev = cartData.find((c) => c.cartId === cartId);
+      const prev = cartDataRef.current.find((c) => c.cartId === cartId);
+
       try {
-        // optimistic remove
-        setCartData((prevItems) =>
-          prevItems.filter((i) => i.cartId !== cartId)
-        );
-        await dispatch(removeFromCartAsync(cartId) as any);
-        ToastAndroid.show("Item removed", ToastAndroid.SHORT);
+        setCartData((prevItems) => prevItems.filter((i) => i.cartId !== cartId));
+        await dispatch(removeFromCartAsync(cartId)).unwrap();
+        // re-sync global cart so badge & totals are consistent across shops
+        dispatch(fetchCartAllAsync()).catch(() => {});
+        showToast("Item removed");
       } catch (err) {
         console.error("Remove failed:", err);
         if (prev && mountedRef.current) setCartData((p) => [prev, ...p]);
-        ToastAndroid.show("Failed to remove item", ToastAndroid.SHORT);
+        showToast("Failed to remove item");
       } finally {
         if (mountedRef.current) setItemUpdating(cartId, false);
       }
     },
-    [dispatch, cartData, setItemUpdating]
+    [dispatch, setItemUpdating]
   );
 
   const totalAmount = useMemo(
     () =>
       cartData.reduce((sum, it) => {
         const unit =
-          it.snapshotPrice != null
-            ? Number(it.snapshotPrice)
-            : Number(it.price ?? 0);
+          it.snapshotPrice != null ? Number(it.snapshotPrice) : Number(it.price ?? 0);
         return sum + unit * (it.quantity || 0);
       }, 0),
     [cartData]
@@ -390,7 +409,6 @@ const CartScreen: React.FC = () => {
     );
   }, []);
 
-  /* ---------- Batching-enabled handleQtyChange ---------- */
   const BATCH_DELAY = 450; // ms
 
   const handleQtyChange = useCallback(
@@ -416,14 +434,10 @@ const CartScreen: React.FC = () => {
       // optimistic update
       updateLocalQty(cartId, newQty);
 
-      // queue the delta
       queuedDeltasRef.current[cartId] =
         (queuedDeltasRef.current[cartId] || 0) + delta;
-
-      // show per-item loading
       setItemUpdating(cartId, true);
 
-      // debounce/batch: clear previous timeout and create a new one
       const existing = tapTimeoutsRef.current[cartId];
       if (existing) clearTimeout(existing);
 
@@ -432,111 +446,107 @@ const CartScreen: React.FC = () => {
         delete queuedDeltasRef.current[cartId];
         delete tapTimeoutsRef.current[cartId];
 
-        // derive desired qty from current UI (defensive)
-        const currentItem = cartData.find((c) => c.cartId === cartId);
+        // use latest UI state from ref (avoid stale closure)
+        const currentItem = cartDataRef.current.find((c) => c.cartId === cartId);
         const desiredQty = currentItem
           ? currentItem.quantity ?? Math.max(0, oldQty + totalDelta)
           : Math.max(0, oldQty + totalDelta);
 
         try {
-          await dispatch(
-            updateCartItemAsync({ cartId, quantity: desiredQty }) as any
-          );
+          await dispatch(updateCartItemAsync({ cartId, quantity: desiredQty })).unwrap();
+          // refresh global cart (keeps badge/totals consistent across shops)
+          dispatch(fetchCartAllAsync()).catch(() => {});
         } catch (err) {
           console.error("Batched update failed", err);
           if (mountedRef.current) {
-            // revert to oldQty (best-effort)
             revertLocalQty(cartId, oldQty);
-            ToastAndroid.show("Failed to update quantity", ToastAndroid.SHORT);
+            showToast("Failed to update quantity");
           }
         } finally {
           if (mountedRef.current) setItemUpdating(cartId, false);
         }
       }, BATCH_DELAY) as unknown as number;
     },
-    [
-      cartData,
-      dispatch,
-      revertLocalQty,
-      updateLocalQty,
-      handleRemoveRequested,
-      setItemUpdating,
-    ]
+    [dispatch, revertLocalQty, setItemUpdating, updateLocalQty, handleRemoveRequested]
   );
 
-  /* ---------- Payment handlers (unchanged) ---------- */
   const paymentAbortRef = useRef<AbortController | null>(null);
 
-  const handleCoinPayment = useCallback(async () => {
-    if (processingPayment) return;
-    setProcessingPayment(true);
-    paymentAbortRef.current?.abort();
-    const controller = new AbortController();
-    paymentAbortRef.current = controller;
+const handleCoinPayment = useCallback(async () => {
+  if (processingPayment) return;
+  if (!cartData.length) return showToast("Cart is empty");
 
-    const coinsToUse = useCoins ? Math.min(totalAmount, coinBalance ?? 0) : 0;
+  // grand total computed already as totalAmount
+  // ensure user has enough coins BEFORE attempting to pay per-shop (prevent partial payments)
+  if (useCoins && (coinBalance ?? 0) < totalAmount) {
+    Alert.alert("Insufficient Coins", `You have ₹${coinBalance}, needed ₹${totalAmount}`);
+    return;
+  }
 
-    const payload = {
-      totalAmount,
-      shopId,
-      delivery_note: "",
-      cartItems: cartData.map((it) => ({
-        menuId: it.menuId,
-        variantId: it.variantId ?? null,
-        quantity: it.quantity,
-        price:
-          typeof it.snapshotPrice === "number"
-            ? it.snapshotPrice
-            : Number(it.price ?? 0),
-        addons: it.addons || [],
-      })),
-    };
+  setProcessingPayment(true);
+  paymentAbortRef.current?.abort();
+  const controller = new AbortController();
+  paymentAbortRef.current = controller;
 
-    try {
-      // const token = await AsyncStorage.getItem("authToken");
-      const res: AxiosResponse = await api.post("/api/coin/pay", payload, {
-        // headers: token ? { Authorization: `Bearer ${token}` } : {},
-        signal: controller.signal as any,
-      });
-      if (res.status === 200) {
-        setCartData([]);
-        ToastAndroid.show("Order placed using coins!", ToastAndroid.SHORT);
-        bottomSheetRef.current?.dismiss()
-        navigation.navigate("orderScreen");
-        dispatch(fetchCartAsync() as any);
-      } else {
-        Alert.alert("Payment failed", res.data?.message || "Try again");
-      }
-    } catch (err: any) {
-      if (!(err?.name === "CanceledError" || err?.message === "canceled")) {
-        console.error("Coin pay error:", err);
-        Alert.alert(
-          "Payment failed",
-          err?.response?.data?.message || "Try again"
-        );
-      }
-    } finally {
-      if (mountedRef.current) setProcessingPayment(false);
+  try {
+    const groups = groupByShop(cartData);
+
+    // If your server supports a single endpoint to pay entire cart across shops with coins,
+    // you can call that here (preferred). If not, we do sequential per-shop coin payments.
+    // I use per-shop sequential calls to match "/api/coin/pay" behavior.
+    for (const sidStr of Object.keys(groups)) {
+      const g = groups[Number(sidStr)];
+      const shopIdForReq = g.shopId;
+
+      const shopPayload = {
+        totalAmount: Number(
+          g.items.reduce((s, it) => {
+            const price = typeof it.snapshotPrice === "number" ? it.snapshotPrice : Number(it.price ?? 0);
+            return s + price * (it.quantity || 0);
+          }, 0).toFixed(2)
+        ),
+        shopId: shopIdForReq,
+        delivery_note: deliveryNoteLocal || "",
+        cartItems: g.items.map((it) => ({
+          menuId: it.menuId,
+          variantId: it.variantId ?? null,
+          quantity: it.quantity,
+          price: typeof it.snapshotPrice === "number" ? it.snapshotPrice : Number(it.price ?? 0),
+          addons: it.addons || [],
+        })),
+      };
+
+      // server endpoint used earlier for single-shop coin payment
+      await api.post("/api/coin/pay", shopPayload, { signal: controller.signal as any });
     }
-  }, [
-    cartData,
-    totalAmount,
-    shopId,
-    navigation,
-    useCoins,
-    coinBalance,
-    dispatch,
-    processingPayment,
-  ]);
 
-  const handlePayLater = useCallback(async () => {
-    if (processingPayment) return;
-    setProcessingPayment(true);
+    // success for all shops
+    setCartData([]);
+    dispatch(resetCart());
+    dispatch(fetchCartAllAsync()).catch(() => {});
+    showToast("Order(s) placed using coins!");
+    bottomSheetRef.current?.dismiss?.();
+    navigation.navigate("orderScreen");
+  } catch (err: any) {
+    if (!(err?.name === "CanceledError" || err?.message === "canceled")) {
+      console.error("Coin pay (multi-shop) error:", err);
+      Alert.alert("Payment failed", err?.response?.data?.message || "Try again");
+    }
+  } finally {
+    if (mountedRef.current) setProcessingPayment(false);
+  }
+}, [cartData, totalAmount, coinBalance, useCoins, dispatch, navigation, deliveryNoteLocal, processingPayment]);
+
+const handlePayLater = useCallback(async () => {
+  if (processingPayment) return;
+  if (!cartData.length) return showToast("Cart is empty");
+  setProcessingPayment(true);
+
+  try {
+    // You already have server route /api/orders/pay-later that groups by shopId when you pass cartItems with shopId.
+    // So the simplest safe call is to send ALL items (each item must include shopId).
     const cartItems = cartData.map((it) => {
-      const price =
-        typeof it.snapshotPrice === "number"
-          ? it.snapshotPrice
-          : Number(it.price ?? 0);
+      const price = typeof it.snapshotPrice === "number" ? it.snapshotPrice : Number(it.price ?? 0);
       return {
         menuId: it.menuId,
         variantId: it.variantId ?? null,
@@ -544,42 +554,32 @@ const CartScreen: React.FC = () => {
         price,
         addons: it.addons || [],
         subtotal: Number((price * it.quantity).toFixed(2)),
-        shopId,
+        shopId: (it as any).shopId,
       };
     });
 
-    try {
-      // const token = await AsyncStorage.getItem("authToken");
-      const res = await api.post(
-        "/api/orders/pay-later",
-        { cartItems, delivery_note: "" },
-        // { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-      );
-      setCartData([]);
-      Alert.alert(
-        "Success",
-        `Pay Later order placed.\nTotal: ₹${res.data.totalAmount}`
-      );
-      bottomSheetRef.current?.dismiss()
-      navigation.navigate("orderScreen");
-      dispatch(fetchCartAsync() as any);
-    } catch (err: any) {
-      console.error("PayLater error", err);
-      Alert.alert(
-        "Error",
-        err?.response?.data?.message || "Something went wrong"
-      );
-    } finally {
-      if (mountedRef.current) setProcessingPayment(false);
-    }
-  }, [cartData, navigation, dispatch, processingPayment]);
+    const res = await api.post("/api/orders/pay-later", { cartItems, delivery_note: deliveryNoteLocal || "" });
 
-  // Modified: Handle floating button press (show footer only)
+    // success -> clear client-side, re-sync
+    setCartData([]);
+    dispatch(resetCart());
+    dispatch(fetchCartAllAsync()).catch(() => {});
+    Alert.alert("Success", `Pay Later order placed.\nTotal: ₹${res.data.totalAmount}`);
+    bottomSheetRef.current?.dismiss?.();
+    navigation.navigate("orderScreen");
+  } catch (err: any) {
+    console.error("PayLater error", err);
+    Alert.alert("Error", err?.response?.data?.message || "Something went wrong");
+  } finally {
+    if (mountedRef.current) setProcessingPayment(false);
+  }
+}, [cartData, dispatch, deliveryNoteLocal, navigation, processingPayment]);
 
   const keyExtractor = useCallback(
     (it: cartDataType) => `${it.cartId ?? it.menuId}`,
     []
   );
+
   const renderItem = useCallback(
     ({ item }: { item: cartDataType | null }) => {
       if (!item || typeof item !== "object") return null;
@@ -606,25 +606,20 @@ const CartScreen: React.FC = () => {
   );
 
   useEffect(() => {
-    // Pick random message once per mount
     const msg = messages[Math.floor(Math.random() * messages.length)];
     setRandomMsg(msg);
   }, []);
 
-  /* ---------- Floating Up-Down animation (Reanimated) ---------- */
-  const FLOAT_AMPLITUDE = hp(1.2); // how much it moves up
+  const FLOAT_AMPLITUDE = hp(1.2);
   const floatY = useSharedValue(0);
   const stopFloatTimer = useRef<number | null>(null);
 
-  // start floating for 5 seconds, then stop (to save CPU)
   const startFloat = useCallback(() => {
-    // clear existing stop timer
     if (stopFloatTimer.current) {
       clearTimeout(stopFloatTimer.current);
       stopFloatTimer.current = null;
     }
 
-    // loop up/down
     floatY.value = withRepeat(
       withSequence(
         withTiming(-FLOAT_AMPLITUDE, {
@@ -637,7 +632,6 @@ const CartScreen: React.FC = () => {
       false
     );
 
-    // auto-stop after 5s
     stopFloatTimer.current = setTimeout(() => {
       try {
         cancelAnimation(floatY);
@@ -658,45 +652,117 @@ const CartScreen: React.FC = () => {
     }
   }, [floatY]);
 
-  // start when cart becomes non-empty, stop when empty
   useEffect(() => {
     if (cartData.length > 0) startFloat();
     else stopFloat();
-    return () => {
-      // nothing here; stopFloat will be called in unmount cleanup if needed
-    };
   }, [cartData.length, startFloat, stopFloat]);
-
-  // stop when footer opened
   useEffect(() => {
     if (showFooterUI) stopFloat();
   }, [showFooterUI, stopFloat]);
 
-  // animated style for button translateY
-  const floatStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: floatY.value }],
-    };
-  });
+  const floatStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: floatY.value }],
+  }));
 
-  const openPaymentModal = useCallback((type: "toPay" | "proceed") => {
-    setModalType(type);
-    // setShowFooterUI(true);
-    bottomSheetRef.current?.present?.();
-    stopFloat(); // stop float while modal is open
-  }, []);
-  // onPress: restart float (for immediate feedback) and open payment modal
+  const openPaymentModal = useCallback(
+    (type: "toPay" | "proceed" | "deliveryInstruction") => {
+      setModalType(type);
+      bottomSheetRef.current?.present?.();
+      stopFloat();
+    },
+    [stopFloat]
+  );
+
   const onPressFloating = useCallback(() => {
     setShowFooterUI(true);
-    // bottomSheetRef.current?.present?.(); // comment for when open modal give ref to show first this 
     startFloat();
   }, [startFloat]);
 
-  /* ---------- Empty state UI ---------- */
-  const gradientColors = ["#562E19", "#943400", "#D97706"]; // Copper Glow (primary -> se condary -> amber)
+  const gradientColors = useMemo(() => ["#562E19", "#943400", "#D97706"], []);
+  const insets = useSafeAreaInsets();
+
+  const coinsToUse = useMemo(
+    () => (useCoins ? Math.min(totalAmount, coinBalance ?? 0) : 0),
+    [useCoins, totalAmount, coinBalance]
+  );
+  const amountAfterCoins = useMemo(() => totalAmount - coinsToUse, [totalAmount, coinsToUse]);
+  const gstAmount = useMemo(() => {
+    return Number((amountAfterCoins * GST_RATE).toFixed(2));
+  }, [amountAfterCoins]);
+
+  const finalAmount = useMemo(
+    () => Number((amountAfterCoins + gstAmount).toFixed(2)),
+    [amountAfterCoins, gstAmount]
+  );
+  const handleSaveDeliveryNote = useCallback(() => {
+    showToast("Delivery note saved");
+    bottomSheetRef.current?.dismiss?.();  
+  }, []);
+
+const handlePlaceOrder = useCallback(
+  async (paymentType: "COD" | "ONLINE" | "coin" = "COD") => {
+    if (processingPayment) return;
+    if (!cartData.length) {
+      showToast("Cart is empty");
+      return;
+    }
+    setProcessingPayment(true);
+
+    try {
+      const groups = groupByShop(cartData);
+      const results: any[] = [];
+
+      // iterate shops sequentially to avoid race/partial state
+      for (const sidStr of Object.keys(groups)) {
+        const g = groups[Number(sidStr)];
+        const shopIdForReq = g.shopId;
+
+        const cartItemsPayload = g.items.map((it) => {
+          const price = typeof it.snapshotPrice === "number" ? it.snapshotPrice : Number(it.price ?? 0);
+          return {
+            menuId: it.menuId,
+            variantId: it.variantId ?? null,
+            quantity: it.quantity,
+            price,
+            addons: it.addons || [],
+          };
+        });
+
+        const payload = {
+          cartItems: cartItemsPayload,
+          shopId: shopIdForReq,
+          totalAmount: Number(
+            cartItemsPayload.reduce((s, x) => s + (x.price || 0) * (x.quantity || 0), 0).toFixed(2)
+          ),
+          payment_type: paymentType === "ONLINE" ? "online" : paymentType === "coin" ? "coin" : "COD",
+          delivery_note: deliveryNoteLocal || "",
+        };
+
+        // POST to your existing single-shop order endpoint (server creates one order per request)
+        const res = await api.post("/api/orders", payload);
+        results.push(res.data);
+      }
+
+      // If we reached here, all shops succeeded
+      setCartData([]);
+      dispatch(resetCart());
+      dispatch(fetchCartAllAsync()).catch(() => {});
+      showToast("Order(s) placed successfully");
+      bottomSheetRef.current?.dismiss?.();
+      navigation.navigate("orderScreen");
+    } catch (err: any) {
+      console.error("Place order (multi-shop) error:", err);
+      Alert.alert("Error", err?.response?.data?.message || "Order placement failed");
+    } finally {
+      if (mountedRef.current) setProcessingPayment(false);
+    }
+  },
+  [cartData, navigation, deliveryNoteLocal, dispatch, processingPayment]
+);
+
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingBottom: insets.bottom }]}>
       <CommonHeader title="Cart" />
 
       {loading ? (
@@ -708,9 +774,8 @@ const CartScreen: React.FC = () => {
           <View style={styles.emptyTextWrapper}>
             <Text style={styles.emptyTitle}>{randomMsg}</Text>
           </View>
-
           <Pressable
-            onPress={() => navigation.navigate("bottomTabScreen")}
+            onPress={() => navigation.navigate("Home")}
             accessibilityRole="button"
             style={({ pressed }) => [
               styles.button,
@@ -722,7 +787,6 @@ const CartScreen: React.FC = () => {
         </View>
       ) : (
         <View style={{ flex: 1 }}>
-          {/* original cart content */}
           <View style={styles.addressRow}>
             <Pressable
               style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
@@ -775,7 +839,9 @@ const CartScreen: React.FC = () => {
             renderItem={renderItem}
             keyExtractor={keyExtractor}
             contentContainerStyle={{
-              paddingBottom: showFooterUI ? hp(30) : hp(24),
+              paddingBottom: showFooterUI
+                ? hp(40) + insets.bottom
+                : hp(24) + insets.bottom,
             }}
             initialNumToRender={6}
             maxToRenderPerBatch={8}
@@ -786,7 +852,6 @@ const CartScreen: React.FC = () => {
         </View>
       )}
 
-      {/* Floating Up-Down Pay Button (no rings) */}
       {cartData.length > 0 && !showFooterUI && (
         <Animated.View style={[styles.floatingWrapper, floatStyle]}>
           <Pressable
@@ -816,7 +881,12 @@ const CartScreen: React.FC = () => {
       )}
 
       {cartData.length > 0 && showFooterUI && (
-        <View style={styles.footer}>
+        <View
+          style={[
+            styles.footer,
+            { paddingBottom: Math.max(insets.bottom, hp(2)) },
+          ]}
+        >
           <Pressable
             style={{ alignSelf: "flex-end", marginBottom: hp(0.5) }}
             onPress={() => setShowFooterUI(false)}
@@ -841,62 +911,49 @@ const CartScreen: React.FC = () => {
 
           <Pressable
             style={styles.footerRow}
-            onPress={() => navigation.navigate("deliveryInstructionScreen")}
+            onPress={() => openPaymentModal("deliveryInstruction")}
           >
             <View style={{ flexDirection: "column" }}>
               <Text style={styles.deliveryInformationText}>
                 Delivery Instruction
               </Text>
               <Text style={styles.deliveryPartnerText}>
-                Delivery partner will be notified
+                Tap to add or edit delivery note
               </Text>
             </View>
             <Ionicons name="chevron-forward-outline" size={hp(2.5)} />
           </Pressable>
 
           <View>
-            {(() => {
-              const coinsToUse = useCoins
-                ? Math.min(totalAmount, coinBalance ?? 0)
-                : 0;
-              const amountAfterCoins = totalAmount - coinsToUse;
-              const gstAmount = amountAfterCoins * 0.05;
-              const finalAmount = amountAfterCoins + gstAmount;
-              return (
-                <>
-                  <Pressable
-                    style={styles.footerRow}
-                    onPress={() => openPaymentModal("toPay")}
-                  >
-                    <View>
-                      <Text style={styles.deliveryInformationText}>To Pay</Text>
-                      <Text style={styles.deliveryPartnerText}>
-                        Incl. all taxes and charges
-                      </Text>
-                    </View>
-                    <Text style={styles.toPayAmount}>
-                      ₹{finalAmount.toFixed(2)}
-                    </Text>
-                  </Pressable>
+            <>
+              <Pressable
+                style={styles.footerRow}
+                onPress={() => openPaymentModal("toPay")}
+              >
+                <View>
+                  <Text style={styles.deliveryInformationText}>To Pay</Text>
+                  <Text style={styles.deliveryPartnerText}>
+                    Incl. all taxes and charges
+                  </Text>
+                </View>
+                <Text style={styles.toPayAmount}>₹{finalAmount.toFixed(2)}</Text>
+              </Pressable>
 
-                  <Pressable
-                    style={styles.proceedBtn}
-                    onPress={() => openPaymentModal("proceed")}
-                  >
-                    <Text style={styles.proceedBtnText}>
-                      Proceed to Payment • ₹{finalAmount.toFixed(2)}
-                    </Text>
-                  </Pressable>
-                </>
-              );
-            })()}
+              <Pressable
+                style={styles.proceedBtn}
+                onPress={() => openPaymentModal("proceed")}
+              >
+                <Text style={styles.proceedBtnText}>
+                  Proceed to Payment • ₹{finalAmount.toFixed(2)}
+                </Text>
+              </Pressable>
+            </>
           </View>
         </View>
       )}
 
-      {/* Bottom Sheet (unchanged) */}
       <BottomSheetModal
-        ref={bottomSheetRef} 
+        ref={bottomSheetRef}
         index={0}
         snapPoints={snapPoints}
         backdropComponent={(props) => (
@@ -910,34 +967,136 @@ const CartScreen: React.FC = () => {
         enablePanDownToClose
         handleIndicatorStyle={{ backgroundColor: "#ddd" }}
       >
-        <BottomSheetView
-          style={{
-            paddingHorizontal: wp(4),
-            paddingTop: hp(1.2),
-            paddingBottom: hp(7),
-          }}
-        >
+        <BottomSheetView style={styles.bottomSheetView}>
           {modalType === "toPay" ? (
             <View>
               <Text style={styles.modalTitle}>Bill Summary</Text>
+
               <View
                 style={{
                   flexDirection: "row",
                   justifyContent: "space-between",
-                  marginVertical: 4,
+                  marginVertical: 6,
                 }}
               >
                 <Text>Item Total</Text>
                 <Text>₹{totalAmount.toFixed(2)}</Text>
               </View>
-              <Pressable onPress={() => bottomSheetRef.current?.dismiss()}>
+
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginVertical: 6,
+                }}
+              >
+                <Text>Coins Used</Text>
+                <Text>₹{coinsToUse.toFixed(2)}</Text>
+              </View>
+
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginVertical: 6,
+                }}
+              >
+                <Text>Delivery Fee</Text>
+                <Text>₹0.00</Text>
+              </View>
+
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginVertical: 6,
+                }}
+              >
+                <Text>{`GST (${GST_PERCENT_DISPLAY}%)`}</Text>
+                <Text>₹{gstAmount.toFixed(2)}</Text>
+              </View>
+
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginVertical: 8,
+                  borderTopWidth: 1,
+                  borderColor: "#eee",
+                  paddingTop: 8,
+                }}
+              >
+                <Text style={{ fontWeight: "700" }}>Total</Text>
+                <Text style={{ fontWeight: "700" }}>
+                  ₹{finalAmount.toFixed(2)}
+                </Text>
+              </View>
+
+              <Pressable
+                style={[styles.proceedBtn, { marginTop: hp(2) }]}
+                onPress={() => {
+                  setModalType("proceed");
+                }}
+              >
+                <Text style={styles.proceedBtnText}>
+                  Proceed • ₹{finalAmount.toFixed(2)}
+                </Text>
+              </Pressable>
+
+              <Pressable onPress={() => bottomSheetRef.current?.dismiss?.()}>
                 <Text style={styles.cancelText}>Cancel</Text>
               </Pressable>
+            </View>
+          ) : modalType === "deliveryInstruction" ? (
+            <View>
+              <Text style={styles.modalTitle}>Delivery Instruction</Text>
+              <Text style={{ marginBottom: hp(1) }}>
+                Add details for the delivery partner (house hint, gate code,
+                preferred drop spot).
+              </Text>
+              <TextInput
+                placeholder="e.g. Leave at the door, call on arrival..."
+                value={deliveryNoteLocal}
+                onChangeText={setDeliveryNoteLocal}
+                multiline
+                style={{
+                  borderWidth: 1,
+                  borderColor: "#ddd",
+                  borderRadius: 8,
+                  minHeight: hp(16),
+                  padding: wp(3),
+                  textAlignVertical: "top",
+                }}
+              />
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "flex-end",
+                  gap: wp(3),
+                  marginTop: hp(2),
+                } as any}
+              >
+                <Pressable
+                  style={[styles.modalBtn, { backgroundColor: "#ccc" }]}
+                  onPress={() => bottomSheetRef.current?.dismiss?.()}
+                >
+                  <Text>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.modalBtn, { backgroundColor: "#562E19" }]}
+                  onPress={handleSaveDeliveryNote}
+                >
+                  <Text style={{ color: "#fff" }}>Save</Text>
+                </Pressable>
+              </View>
             </View>
           ) : (
             <View>
               <Text style={styles.modalTitle}>Choose Payment Method</Text>
-
+                <Pressable style={styles.paymentOption} onPress={() => handlePlaceOrder("COD")}>
+    <Ionicons name="cash-outline" size={24} color={theme.PRIMARY_COLOR} />
+    <Text style={styles.paymentText}>Cash on Delivery</Text>
+  </Pressable>
               <Pressable
                 style={styles.paymentOption}
                 onPress={handleCoinPayment}
@@ -949,7 +1108,6 @@ const CartScreen: React.FC = () => {
                 />
                 <Text style={styles.paymentText}>Pay with ClickTea Coin</Text>
               </Pressable>
-
               <Pressable
                 style={styles.paymentOption}
                 onPress={() =>
@@ -966,7 +1124,6 @@ const CartScreen: React.FC = () => {
                 />
                 <Text style={styles.paymentText}>Pay Online</Text>
               </Pressable>
-
               <Pressable style={styles.paymentOption} onPress={handlePayLater}>
                 <Ionicons
                   name="time-outline"
@@ -975,25 +1132,22 @@ const CartScreen: React.FC = () => {
                 />
                 <Text style={styles.paymentText}>Pay Later</Text>
               </Pressable>
-
-              <Pressable onPress={() => bottomSheetRef.current?.dismiss()}>
+              <Pressable onPress={() => bottomSheetRef.current?.dismiss?.()}>
                 <Text style={styles.cancelText}>Cancel</Text>
               </Pressable>
             </View>
           )}
         </BottomSheetView>
       </BottomSheetModal>
-    </View>
+    </SafeAreaView>
   );
 };
 
 export default CartScreen;
 
-/* ---------- Styles (tweaked / cleaned) ---------- */
+// styles (unchanged except reused modalBtn used above)
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-
-  /* Empty state */
   emptyCart: {
     flex: 1,
     justifyContent: "center",
@@ -1014,8 +1168,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: hp(3),
   },
-
-  /* Empty button */
   button: {
     backgroundColor: theme.PRIMARY_COLOR,
     paddingVertical: hp(2),
@@ -1024,12 +1176,7 @@ const styles = StyleSheet.create({
     elevation: 3,
     marginTop: hp(2),
   },
-  buttonText: {
-    color: "#fff",
-    fontSize: hp(1.9),
-    fontWeight: "700",
-  },
-
+  buttonText: { color: "#fff", fontSize: hp(1.9), fontWeight: "700" },
   addressRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1053,7 +1200,6 @@ const styles = StyleSheet.create({
   },
   deliveryInfo: { flexDirection: "row", alignItems: "center" },
   deliveryText: { color: theme.PRIMARY_COLOR, marginLeft: 5 },
-
   itemRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1067,7 +1213,6 @@ const styles = StyleSheet.create({
   itemBody: { flex: 1, marginLeft: wp(3) },
   itemName: { fontSize: hp(1.8), fontWeight: "500" },
   itemPriceEach: { fontSize: hp(1.4), color: "#5B5B5B" },
-
   qtyContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1087,7 +1232,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   qtyText: { marginHorizontal: wp(2) },
-
   itemTotal: {
     fontWeight: "bold",
     minWidth: wp(12),
@@ -1095,7 +1239,6 @@ const styles = StyleSheet.create({
     marginLeft: wp(2),
   },
   coinIcon: { position: "absolute", right: wp(2), bottom: hp(1) },
-
   footer: {
     borderTopWidth: 1,
     borderColor: "#E8E8E8",
@@ -1112,12 +1255,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: hp(2),
   },
-
   proceedBtn: {
     backgroundColor: theme.PRIMARY_COLOR,
     paddingVertical: hp(1.5),
     borderRadius: 8,
     alignItems: "center",
+    marginBottom:hp(7)
   },
   proceedBtnText: {
     color: "#fff",
@@ -1125,7 +1268,6 @@ const styles = StyleSheet.create({
     fontSize: hp(1.8),
     textAlign: "center",
   },
-
   toPayAmount: { fontWeight: "bold" },
   modalTitle: { fontSize: hp(2.2), fontWeight: "bold", marginBottom: hp(1) },
   paymentOption: {
@@ -1153,19 +1295,17 @@ const styles = StyleSheet.create({
     fontSize: hp(1.6),
     fontWeight: "500",
   },
-
-  /* Floating button wrapper & styles */
   floatingWrapper: {
     position: "absolute",
     bottom: hp(3.5),
     alignSelf: "center",
     alignItems: "center",
     justifyContent: "center",
-    // keep size compact for touch target
   },
   floatingPayBtn: {
     borderRadius: 999,
     overflow: "visible",
+    paddingBottom: hp(7),
   },
   floatingInner: {
     flexDirection: "row",
@@ -1181,4 +1321,18 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   floatingPayText: { color: "#fff", fontWeight: "700", fontSize: hp(1.8) },
+  bottomSheetView: {
+    paddingHorizontal: wp(4),
+    paddingTop: hp(1.2),
+    paddingBottom: hp(7),
+  },
+
+  // small modal button used inside delivery instruction
+  modalBtn: {
+    paddingVertical: hp(0.8),
+    paddingHorizontal: wp(3),
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

@@ -1,232 +1,172 @@
+const { roundMoney } = require("../config/constant");
 const db = require("../config/db");
 const { sendPushToUsers, emitInApp, notifyUsers } = require("../services/notificatonService");
+const { sanitizeCartItems, computeOrderTotals } = require("../utils/orderHelper");
 
 
-// const placeOrder = async (req, res) => {
-//   const { cartItems, shopId, totalAmount: totalAmountRaw, payment_type, delivery_note = "" } = req.body;
-//   const userId = req.user.id;
-//   const totalAmount = Number(totalAmountRaw) || 0;
-
-//   if (!Array.isArray(cartItems) || cartItems.length === 0) {
-//     return res.status(400).json({ message: "Cart is empty" });
-//   }
-//   if (!shopId) return res.status(400).json({ message: "Missing shopId" });
-
-//   let conn;
-//   try {
-//     conn = await db.getConnection();
-//     await conn.beginTransaction();
-
-//     // 1) Insert order
-//     const [orderResult] = await conn.query(
-//       `INSERT INTO orders (userId, shopId, totalAmount, payment_type, is_paid, delivery_note)
-//        VALUES (?, ?, ?, ?, 0, ?)`,
-//       [userId, shopId, totalAmount, payment_type, delivery_note]
-//     );
-//     const orderId = orderResult.insertId;
-
-//     // 2) Insert order_items
-//     for (const item of cartItems) {
-//       const menuId = item.menuId;
-//       const quantity = Number(item.quantity) || 0;
-//       if (!menuId || quantity <= 0) {
-//         await conn.rollback();
-//         return res.status(400).json({ message: "Invalid cart item", item });
-//       }
-
-//       let price = typeof item.price !== "undefined" && item.price !== null ? Number(item.price) : null;
-//       if (price === null) {
-//         const [menuRows] = await conn.query("SELECT price FROM menus WHERE menuId = ? LIMIT 1", [menuId]);
-//         if (!menuRows.length) {
-//           await conn.rollback();
-//           return res.status(400).json({ message: `Menu not found: ${menuId}` });
-//         }
-//         price = Number(menuRows[0].price) || 0;
-//       }
-
-//       const subtotal = Number((price * quantity).toFixed(2));
-
-//       await conn.query(
-//         `INSERT INTO order_items (orderId, menuId, quantity, addons, price, subtotal)
-//          VALUES (?, ?, ?, ?, ?, ?)`,
-//         [orderId, menuId, quantity, JSON.stringify(item.addons || []), price.toFixed(2), subtotal]
-//       );
-//     }
-
-//     // 3) clear cart
-//     await conn.query("DELETE FROM cart_items WHERE userId = ? AND shopId = ? AND status = 'active'", [userId, shopId]);
-
-//     // ✅ commit
-//     await conn.commit();
-
-//     // ✅ respond
-//     res.status(201).json({ message: "Order placed successfully", orderId });
-
-//     // 4) fire-and-forget notifications
-//     (async () => {
-//       try {
-//         // get shop owner
-//         const [[shopRow]] = await db.query("SELECT owner_id FROM shops WHERE id = ?", [shopId]);
-//         const vendorIds = shopRow && shopRow.owner_id ? [shopRow.owner_id] : [];
-
-//         if (vendorIds.length) {
-//           const title = "New Order Placed";
-//           const body = `Order #${orderId} has been placed.`;
-//           const payload = { type: "order_placed", orderId, shopId };
-
-//           // save notification in DB
-//           await db.query(
-//             `INSERT INTO notifications (user_id, type, title, body, payload, created_at) VALUES (?, ?, ?, ?, ?, NOW())`,
-//             [vendorIds[0], "order_placed", title, body, JSON.stringify(payload)]
-//           );
-
-//           // socket.io emit
-//           if (req.io) {
-//             try { emitInApp(req.io, vendorIds, "order:placed", payload); }
-//             catch (e) { console.warn("emitInApp failed:", e); }
-//           }
-
-//           // push
-//           try {
-//             await sendPushToUsers(vendorIds, title, body, payload);
-//           } catch (pushErr) {
-//             console.warn("sendPushToUsers failed:", pushErr);
-//           }
-//         }
-//       } catch (e) {
-//         console.warn("Async notify error (non-fatal):", e);
-//       }
-//     })();
-
-//     return;
-//   } catch (err) {
-//     console.error("Place order error:", err);
-//     try { if (conn) await conn.rollback(); } catch (rb) { console.error("rollback failed:", rb); }
-//     if (!res.headersSent) return res.status(500).json({ message: "Server error" });
-//     return;
-//   } finally {
-//     if (conn) try { await conn.release(); } catch (_) {}
-//   }
-// };
 const placeOrder = async (req, res) => {
-  const { cartItems, shopId, totalAmount: totalAmountRaw, payment_type, delivery_note = "" } = req.body;
   const userId = req.user?.userId;
-  const totalAmount = Number(totalAmountRaw) || 0;
+  const { cartItems: rawCart, shopId, payment_type, delivery_note = "" } = req.body;
 
-  if (!Array.isArray(cartItems) || cartItems.length === 0) return res.status(400).json({ message: "Cart is empty" });
+  if (!userId) return res.status(401).json({ message: "User not authenticated" });
   if (!shopId) return res.status(400).json({ message: "Missing shopId" });
-  if (!userId) return res.status(400).json({ message: "User not authenticated" });
+  if (!Array.isArray(rawCart) || rawCart.length === 0) return res.status(400).json({ message: "Cart is empty" });
 
   let conn;
   try {
     conn = await db.getConnection();
     await conn.beginTransaction();
 
-    // calc total and prepare order items
-    let computedTotal = 0;
-    const prepared = [];
+    // sanitize and compute totals server-side
+    const sanitized = sanitizeCartItems(rawCart);
+    const { prepared, subtotal, gstAmount, deliveryFee, discount, totalAmount } =
+      await computeOrderTotals(conn, sanitized);
 
-    for (const item of cartItems) {
-      const menuId = item.menuId;
-      const qty = Number(item.quantity) || 1;
-      if (!menuId || qty <= 0) {
-        await conn.rollback();
-        return res.status(400).json({ message: "Invalid cart item", item });
-      }
-
-      // prefer authoritative variant price if variantId provided
-      let unitPrice = null;
-      let snapshotName = null;
-      let variantSnapshot = null;
-
-      if (item.variantId) {
-        const [vrows] = await conn.query("SELECT mv.*, m.menuName FROM menu_variants mv JOIN menus m ON m.menuId=mv.menuId WHERE mv.variantId = ? AND mv.menuId = ?", [item.variantId, menuId]);
-        if (!vrows.length) {
-          await conn.rollback();
-          return res.status(400).json({ message: `Variant not found for menu ${menuId}` });
-        }
-        const v = vrows[0];
-        if (v.isAvailable == 0) {
-          await conn.rollback();
-          return res.status(400).json({ message: `Variant not available for menu ${menuId}` });
-        }
-        unitPrice = Number(v.price);
-        snapshotName = v.variantName || v.menuName;
-        variantSnapshot = { variantId: v.variantId, variantName: v.variantName, price: Number(v.price) };
-      } else {
-        // fallback to menu base price
-        const [mrows] = await conn.query("SELECT menuName, price FROM menus WHERE menuId = ? LIMIT 1", [menuId]);
-        if (!mrows.length) {
-          await conn.rollback();
-          return res.status(400).json({ message: `Menu not found: ${menuId}` });
-        }
-        unitPrice = Number(mrows[0].price || 0);
-        snapshotName = mrows[0].menuName;
-        variantSnapshot = null;
-      }
-
-      const subtotal = Number((unitPrice * qty).toFixed(2));
-      computedTotal += subtotal;
-
-      prepared.push({
-        menuId,
-        unitPrice,
-        qty,
-        subtotal,
-        addons: item.addons || [],
-        snapshotName,
-        variantSnapshot,
-      });
+    // Optionally compare client-provided totalAmount for logging only
+    if (req.body.totalAmount && roundMoney(req.body.totalAmount) !== roundMoney(totalAmount)) {
+      console.warn(`Client/Server totalAmount mismatch for user ${userId}. Client: ${req.body.totalAmount}, Server: ${totalAmount}`);
+      // but continue using server-computed totalAmount
     }
 
-    // Overwrite client total with computedTotal (server authoritative)
-    const finalTotal = Number(computedTotal.toFixed(2));
-
-    // Insert order
-    const [orderResult] =await conn.query(
-  `INSERT INTO orders (userId, shopId, totalAmount, payment_type, is_paid, delivery_note, status, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-  [userId, shopId, finalTotal, payment_type ?? "unknown", 1, delivery_note, 'preparing']
-);
+    // insert order (server-canonical totals)
+    const [orderResult] = await conn.query(
+      `INSERT INTO orders (userId, shopId, subtotal, gstAmount, deliveryFee, discount, totalAmount, payment_type, is_paid, delivery_note, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [userId, shopId, subtotal.toFixed(2), gstAmount.toFixed(2), deliveryFee.toFixed(2), discount.toFixed(2), totalAmount.toFixed(2), payment_type ?? "unknown", 1, delivery_note, 'preparing']
+    );
     const orderId = orderResult.insertId;
 
-    // Insert order_items
+    // insert order_items WITHOUT per-item gst
     for (const it of prepared) {
       await conn.query(
-        `INSERT INTO order_items (orderId, menuId, menuName, variantId, quantity, addons, unitPrice, subtotal, snapshot, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        `INSERT INTO order_items (orderId, menuId, menuName, variantId, quantity, addons, unitPrice, price, subtotal, snapshot, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
           orderId,
           it.menuId,
           it.snapshotName,
           it.variantSnapshot ? it.variantSnapshot.variantId : null,
-          it.qty,
+          it.quantity,
           JSON.stringify(it.addons || []),
-          it.unitPrice,
-          it.subtotal,
-          JSON.stringify({ menuName: it.snapshotName, variant: it.variantSnapshot, unitPrice: it.unitPrice, qty: it.qty }),
+          it.unitPrice.toFixed(2),
+          it.unitPrice.toFixed(2), // price column (if you use both unitPrice & price)
+          it.subtotal.toFixed(2),
+          JSON.stringify({ menuName: it.snapshotName, variant: it.variantSnapshot, unitPrice: it.unitPrice, qty: it.quantity })
         ]
       );
     }
 
-    // clear cart items for this user + shop
+    // Clear cart for this user + shop
     await conn.query("DELETE FROM cart_items WHERE userId = ? AND shopId = ? AND status = 'active'", [userId, shopId]);
 
     await conn.commit();
-
-    // respond
-    res.status(201).json({ message: "Order placed successfully", orderId, total: finalTotal });
+    return res.status(201).json({ message: "Order placed successfully", orderId, total: totalAmount });
   } catch (err) {
     console.error("Place order error:", err);
-    try {
-      if (conn) await conn.rollback();
-    } catch (_) {}
-    if (!res.headersSent) return res.status(500).json({ message: "Server error" });
+    try { if (conn) await conn.rollback(); } catch (_) {}
+    if (!res.headersSent) return res.status(500).json({ message: err.message || "Server error" });
   } finally {
     if (conn) try { await conn.release(); } catch (_) {}
   }
 };
+const createOrdersFromCart = async (req, res) => {
+  const userId = req.user.userId;
+  const { payment_type = 'unknown', delivery_note = '' } = req.body;
 
+  let conn;
+  try {
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    // fetch active cart
+    const [cartRows] = await conn.query(
+      `SELECT * FROM cart_items WHERE userId = ? AND status = 'active' ORDER BY shopId, cartId`,
+      [userId]
+    );
+    if (!cartRows.length) {
+      await conn.rollback();
+      return res.status(400).json({ message: "Cart is empty" });
+    }
+
+    // group
+    const grouped = cartRows.reduce((acc, r) => {
+      const sid = Number(r.shopId);
+      if (!acc[sid]) acc[sid] = [];
+      acc[sid].push(r);
+      return acc;
+    }, {});
+
+    const createdOrders = [];
+    for (const shopIdStr of Object.keys(grouped)) {
+      const shopId = Number(shopIdStr);
+      const items = grouped[shopId];
+
+      // compute subtotal etc from snapshotPrice and addons (adjust if you store addon prices differently)
+      let subtotal = 0;
+      const prepared = items.map((it) => {
+        const qty = Number(it.quantity || 0);
+        const unit = Number(it.snapshotPrice || 0);
+        let addonsTotal = 0;
+        let addons = [];
+        try { addons = JSON.parse(it.addons || "[]"); } catch (e) { addons = []; }
+        addons.forEach(a => { addonsTotal += Number(a.price || 0) * (Number(a.qty || 1)); });
+        const lineSubtotal = (unit * qty) + addonsTotal;
+        subtotal += lineSubtotal;
+        return { cartId: it.cartId, menuId: it.menuId, variantId: it.variantId, qty, unit, addons, lineSubtotal, snapshotName: it.snapshotName };
+      });
+
+      // TODO: compute gstAmount, deliveryFee, discount by your rules or reuse computeOrderTotals util
+      const gstAmount = 0;
+      const deliveryFee = 0;
+      const discount = 0;
+      const totalAmount = subtotal + gstAmount + deliveryFee - discount;
+
+      const [orderResult] = await conn.query(
+        `INSERT INTO orders (userId, shopId, subtotal, gstAmount, deliveryFee, discount, totalAmount, payment_type, is_paid, status, delivery_note, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [userId, shopId, subtotal.toFixed(2), gstAmount.toFixed(2), deliveryFee.toFixed(2), discount.toFixed(2), totalAmount.toFixed(2), payment_type, 0, 'preparing', delivery_note]
+      );
+      const orderId = orderResult.insertId;
+
+      // insert order_items
+      for (const p of prepared) {
+        await conn.query(
+          `INSERT INTO order_items (orderId, menuId, variantId, quantity, addons, price, subtotal, menuName, unitPrice, snapshot, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            orderId,
+            p.menuId,
+            p.variantId || null,
+            p.qty,
+            JSON.stringify(p.addons || []),
+            p.unit.toFixed(2),
+            p.lineSubtotal.toFixed(2),
+            p.snapshotName,
+            p.unit.toFixed(2),
+            JSON.stringify({ menuName: p.snapshotName, variant: p.variantId })
+          ]
+        );
+      }
+
+      // remove those cart items
+      const cartIds = prepared.map((p) => p.cartId);
+      if (cartIds.length) {
+        await conn.query("DELETE FROM cart_items WHERE cartId IN (?)", [cartIds]);
+      }
+
+      createdOrders.push({ orderId, shopId, subtotal: Number(subtotal.toFixed(2)), totalAmount: Number(totalAmount.toFixed(2)), itemCount: prepared.length });
+    }
+
+    await conn.commit();
+    return res.status(201).json({ message: "Orders created", createdOrders });
+  } catch (err) {
+    if (conn) await conn.rollback();
+    console.error("createOrdersFromCart error:", err);
+    return res.status(500).json({ message: "Server error" });
+  } finally {
+    if (conn) try { await conn.release(); } catch(_) {}
+  }
+};
 // ✅ 2. Get Orders for a User
 const getMyOrders = async (req, res) => {
   try {
@@ -472,52 +412,6 @@ const getOrderById = async (req, res) => {
   }
 };
 
-// ✅ 5. Cancel Order (user/shop_owner/admin)
-// const cancelOrder = async (req, res) => {
-//   try {
-//     const { orderId } = req.params;
-//     const role = req.user.role;
-
-//     // Get order and user/shop checks
-//     const [orders] = await db.query("SELECT * FROM orders WHERE orderId = ?", [orderId]);
-//     if (!orders.length) return res.status(404).json({ message: "Order not found" });
-
-//     const order = orders[0];
-
-//     // 🔒 Authorization
-//     if (role === "user" && order.userId !== req.user.id)
-//       return res.status(403).json({ message: "You can't cancel this order" });
-
-//     if (role === "shop_owner") {
-//       const [shop] = await db.query("SELECT id FROM shops WHERE owner_id = ?", [req.user.id]);
-//       if (!shop.length || shop[0].id !== order.shopId)
-//         return res.status(403).json({ message: "You can't cancel this order" });
-//     }
-
-//     // ✅ Update order status
-//     await db.query("UPDATE orders SET status = 'cancelled' WHERE orderId = ?", [orderId]);
-
-//     // ✅ Refund coins only if paid using 'coin'
-//     if (order.payment_type === "coin") {
-//       // Refund coins to user
-//       await db.query("UPDATE users SET coin = coin + ? WHERE id = ?", [order.totalAmount, order.userId]);
-
-//       // Add coin_history log
-//       await db.query(
-//         `INSERT INTO coin_history (userId, orderId, type, amount, reason) 
-//          VALUES (?, ?, 'credit', ?, 'Order Cancelled')`,
-//         [order.userId, orderId, order.totalAmount]
-//       );
-//     }
-
-//     res.status(200).json({
-//       message: `Order cancelled successfully${order.payment_type === "coin" ? ' — refund added as ClickTea Coins' : ''}`,
-//     });
-//   } catch (err) {
-//     console.error("Cancel order error:", err);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// };
 const cancelOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -602,48 +496,6 @@ const cancelOrder = async (req, res) => {
   }
 };
 
-
-// ✅ 6. Update order status (vendor)
-// const updateOrderStatus = async (req, res) => {
-//   try {
-//     const { orderId } = req.params;
-//     const { status } = req.body;
-//     const role = req.user.role;
-
-//     let query = "SELECT * FROM orders WHERE orderId = ?";
-//     let params = [orderId];
-
-//     // If shop owner, restrict to their own shop
-//     if (role === "shop_owner") {
-//       const shopId = req.user.shopId;
-//       if (!shopId) {
-//         return res
-//           .status(403)
-//           .json({ message: "No shop associated with your account" });
-//       }
-//       query += " AND shopId = ?";
-//       params.push(shopId);
-//     }
-
-//     const [order] = await db.query(query, params);
-// // console.log("Query params:", params);
-// // console.log("Order fetched:", order);
-//     if (order.length === 0) {
-//       return res
-//         .status(404)
-//         .json({ message: "Order not found or unauthorized" });
-//     }
-
-//     await db.query("UPDATE orders SET status = ? WHERE orderId = ?", [
-//       status,
-//       orderId,
-//     ]);
-//     res.status(200).json({ message: "Order status updated successfully" });
-//   } catch (err) {
-//     console.error("Update status error:", err);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// };
 const updateOrderStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -933,6 +785,7 @@ const getPopularItems = async (req, res) => {
 
 module.exports = {
   placeOrder,
+  createOrdersFromCart,
    placePayLaterOrder, 
   getMyOrders,
   getShopOrders,
