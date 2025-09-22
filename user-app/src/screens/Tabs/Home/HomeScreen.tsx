@@ -60,6 +60,7 @@ import Animated, {
 import PopularSkeleton from "@/src/components/skeltons/PopularSkeleton";
 import FloatingCoffeeButton from "@/src/components/Button/FloatingCoffeeButton";
 import { SHADOW } from "@/src/assets/utils/shadow";
+import CommonUI, { NewCommonSearchBar } from "@/src/Common/NewCommonSearchBar";
 
 /* ---------------- Types ---------------- */
 type RootState = any;
@@ -318,6 +319,256 @@ const CategoryItem = React.memo(function CategoryItem({
 });
 
 /* ---------------- HomeHeader (memoized) ---------------- */
+// const HomeHeader = React.memo(function HomeHeader({
+//   insets,
+//   location,
+//   navigation,
+//   searchText,
+//   setSearchText,
+//   greeting,
+//   dailyMessage,
+//   categories,
+//   loadingCategories,
+//   onOpenCategory,
+//   onMenuPress,
+//   onNotificationsPress,
+// }: any) {
+//   const limitedCategories = Array.isArray(categories)
+//     ? categories.slice(0, 7)
+//     : [];
+
+//   const FONT_SIZE = Math.max(13, Math.round(wp(3.6)));
+//   const ITEM_HEIGHT = Math.round(hp(2.2));
+//   const tickerItems = useMemo(() => {
+//     if (!Array.isArray(DEFAULT_SUGGESTIONS) || DEFAULT_SUGGESTIONS.length === 0)
+//       return [];
+//     return [...DEFAULT_SUGGESTIONS, DEFAULT_SUGGESTIONS[0]];
+//   }, []);
+//   const tickerCount = tickerItems.length;
+//   const tickerIndexRef = useRef<number>(0);
+//   const tickerIntervalRef = useRef<number | null>(null);
+//   const translateY = useSharedValue(0);
+//   const tickerAnimStyle = useAnimatedStyle(
+//     () => ({ transform: [{ translateY: translateY.value }] }),
+//     []
+//   );
+
+//   useEffect(() => {
+//     const start = () => {
+//       if (tickerIntervalRef.current) return;
+//       // using window.setInterval to get a number id (work in RN)
+//       tickerIntervalRef.current = (global as any).setInterval(() => {
+//         if (searchText?.trim().length > 0) return;
+//         const next = tickerIndexRef.current + 1;
+//         translateY.value = withTiming(-next * ITEM_HEIGHT, { duration: 420 });
+//         tickerIndexRef.current = next;
+//         if (next === tickerCount - 1) {
+//           setTimeout(() => {
+//             tickerIndexRef.current = 0;
+//             translateY.value = withTiming(0, { duration: 0 });
+//           }, 420 + 20);
+//         }
+//       }, PAGE_TICKER_INTERVAL);
+//     };
+//     start();
+//     return () => {
+//       if (tickerIntervalRef.current) {
+//         clearInterval(tickerIntervalRef.current);
+//         tickerIntervalRef.current = null;
+//       }
+//     };
+//   }, [translateY, searchText, ITEM_HEIGHT, tickerCount]);
+
+//   return (
+//     <View>
+//       <LinearGradient
+//         colors={["#5C2C18", "#A65A3A", "#F5E0C3"]}
+//         start={{ x: 0, y: 0 }}
+//         end={{ x: 1, y: 1 }}
+//         style={[
+//           styles.topHeaderBackground,
+//           {
+//             paddingTop:
+//               (insets.top ||
+//                 (Platform.OS === "android"
+//                   ? StatusBar.currentHeight ?? 24
+//                   : 0)) + hp(2),
+//           },
+//         ]}
+//       >
+//         <StatusBar
+//           translucent
+//           backgroundColor="transparent"
+//           barStyle="light-content"
+//         />
+
+//         <View style={styles.topHeaderInner}>
+//           <View style={{ flexDirection: "row", alignItems: "center" }}>
+//             <Pressable
+//               onPress={onMenuPress}
+//               hitSlop={{ top: 10, left: 10, right: 10, bottom: 10 }}
+//             >
+//               <Ionicons name="menu-outline" size={ICON.large} color="#fff" />
+//             </Pressable>
+
+//             <TouchableOpacity
+//               style={styles.locationRow}
+//               onPress={() => navigation.navigate("locationScreen" as never)}
+//               activeOpacity={0.8}
+//               accessibilityRole="button"
+//               accessibilityLabel="Open location selector"
+//             >
+//               <View style={styles.locationBadge}>
+//                 <Ionicons
+//                   name="location-outline"
+//                   size={hp(2)}
+//                   color={theme.PRIMARY_COLOR}
+//                 />
+//               </View>
+
+//               <View style={{ marginLeft: 10, maxWidth: wp(56) }}>
+//                 <Text style={styles.locationTitle} numberOfLines={1}>
+//                   {location
+//                     ? "Iskon Junction, Iskcon Ambli..."
+//                     : "Select Location"}
+//                 </Text>
+//                 <Text style={styles.locationSubtitle} numberOfLines={1}>
+//                   {location
+//                     ? `${location.latitude}, ${location.longitude}`
+//                     : "Tap to choose"}
+//                 </Text>
+//               </View>
+//             </TouchableOpacity>
+//           </View>
+
+//           <TouchableOpacity
+//             onPress={onNotificationsPress}
+//             hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
+//             accessibilityRole="button"
+//           >
+//             <Ionicons
+//               name="notifications-outline"
+//               size={ICON.large}
+//               color="#fff"
+//             />
+//           </TouchableOpacity>
+//         </View>
+
+//         <View style={styles.greetingContainer}>
+//           <Text style={styles.greetingText}>{greeting}, Aarin</Text>
+
+//           <View style={styles.dailyMessageWrapper}>
+//             <Text
+//               style={styles.dailyMessage}
+//               numberOfLines={2}
+//               ellipsizeMode="tail"
+//               accessibilityLabel={`Daily message: ${dailyMessage}`}
+//             >
+//               {dailyMessage}
+//             </Text>
+//           </View>
+//         </View>
+
+//         <View style={styles.searchRow}>
+//           {searchText ? (
+//             <TouchableOpacity
+//               onPress={() => setSearchText("")}
+//               hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
+//             >
+//               <Ionicons name="close-circle" size={ICON.small} />
+//             </TouchableOpacity>
+//           ) : (
+//             <Ionicons
+//               name="search"
+//               size={ICON.small}
+//               color="#999"
+//               style={styles.searchIcon}
+//             />
+//           )}
+
+//           <TouchableOpacity
+//             style={styles.searchInput}
+//             activeOpacity={1}
+//             onPress={() => navigation.navigate("searchScreen" as never)}
+//             accessibilityRole="button"
+//             accessibilityLabel="Open search"
+//           >
+//             <TextInput
+//               editable={false}
+//               pointerEvents="none"
+//               style={styles.searchInputText}
+//               value={searchText}
+//               onChangeText={setSearchText}
+//               returnKeyType="search"
+//             />
+
+//             {!searchText && tickerItems.length > 0 ? (
+//               <View
+//                 pointerEvents="none"
+//                 style={[styles.tickerContainer, { height: ITEM_HEIGHT }]}
+//               >
+//                 <View style={[styles.tickerClip, { height: ITEM_HEIGHT }]}>
+//                   <Animated.View style={[tickerAnimStyle]}>
+//                     {tickerItems.map((w, i) => (
+//                       <View
+//                         key={String(w) + i}
+//                         style={{
+//                           height: ITEM_HEIGHT,
+//                           justifyContent: "center",
+//                         }}
+//                       >
+//                         <Text
+//                           style={[
+//                             styles.placeholderText,
+//                             { fontSize: FONT_SIZE },
+//                           ]}
+//                           numberOfLines={1}
+//                         >
+//                           {"Search for " + w}
+//                         </Text>
+//                       </View>
+//                     ))}
+//                   </Animated.View>
+//                 </View>
+//               </View>
+//             ) : null}
+//           </TouchableOpacity>
+//         </View>
+//       </LinearGradient>
+
+//       <View style={styles.categoryHeaderRow}>
+//         <Text style={styles.sectionTitle}>Categories</Text>
+//         <TouchableOpacity
+//           onPress={() => navigation.navigate("viewAllCategoryScreen" as never)}
+//           accessibilityRole="button"
+//         >
+//           <Text style={styles.viewAllText}>View All</Text>
+//         </TouchableOpacity>
+//       </View>
+
+//       {loadingCategories ? (
+//         <CategorySkeleton />
+//       ) : (
+//         <FlatList
+//           data={limitedCategories}
+//           horizontal
+//           showsHorizontalScrollIndicator={false}
+//           keyExtractor={(it: CategoryType) => `cat-${it.categoryId}`}
+//           renderItem={({ item }) => (
+//             <CategoryItem item={item} onPress={onOpenCategory} />
+//           )}
+//           contentContainerStyle={styles.categoryList}
+//         />
+//       )}
+
+//       <Text style={styles.sectionTitleCompact}>
+//         Nearby Vendors (within 1KM)
+//       </Text>
+//     </View>
+//   );
+// });
+
+/* ---------------- HomeHeader (memoized) ---------------- */
 const HomeHeader = React.memo(function HomeHeader({
   insets,
   location,
@@ -332,51 +583,9 @@ const HomeHeader = React.memo(function HomeHeader({
   onMenuPress,
   onNotificationsPress,
 }: any) {
-  const limitedCategories = Array.isArray(categories)
-    ? categories.slice(0, 7)
-    : [];
+  const limitedCategories = Array.isArray(categories) ? categories.slice(0, 7) : [];
 
   const FONT_SIZE = Math.max(13, Math.round(wp(3.6)));
-  const ITEM_HEIGHT = Math.round(hp(2.2));
-  const tickerItems = useMemo(() => {
-    if (!Array.isArray(DEFAULT_SUGGESTIONS) || DEFAULT_SUGGESTIONS.length === 0)
-      return [];
-    return [...DEFAULT_SUGGESTIONS, DEFAULT_SUGGESTIONS[0]];
-  }, []);
-  const tickerCount = tickerItems.length;
-  const tickerIndexRef = useRef<number>(0);
-  const tickerIntervalRef = useRef<number | null>(null);
-  const translateY = useSharedValue(0);
-  const tickerAnimStyle = useAnimatedStyle(
-    () => ({ transform: [{ translateY: translateY.value }] }),
-    []
-  );
-
-  useEffect(() => {
-    const start = () => {
-      if (tickerIntervalRef.current) return;
-      // using window.setInterval to get a number id (work in RN)
-      tickerIntervalRef.current = (global as any).setInterval(() => {
-        if (searchText?.trim().length > 0) return;
-        const next = tickerIndexRef.current + 1;
-        translateY.value = withTiming(-next * ITEM_HEIGHT, { duration: 420 });
-        tickerIndexRef.current = next;
-        if (next === tickerCount - 1) {
-          setTimeout(() => {
-            tickerIndexRef.current = 0;
-            translateY.value = withTiming(0, { duration: 0 });
-          }, 420 + 20);
-        }
-      }, PAGE_TICKER_INTERVAL);
-    };
-    start();
-    return () => {
-      if (tickerIntervalRef.current) {
-        clearInterval(tickerIntervalRef.current);
-        tickerIntervalRef.current = null;
-      }
-    };
-  }, [translateY, searchText, ITEM_HEIGHT, tickerCount]);
 
   return (
     <View>
@@ -395,11 +604,7 @@ const HomeHeader = React.memo(function HomeHeader({
           },
         ]}
       >
-        <StatusBar
-          translucent
-          backgroundColor="transparent"
-          barStyle="light-content"
-        />
+        <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
 
         <View style={styles.topHeaderInner}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -418,23 +623,15 @@ const HomeHeader = React.memo(function HomeHeader({
               accessibilityLabel="Open location selector"
             >
               <View style={styles.locationBadge}>
-                <Ionicons
-                  name="location-outline"
-                  size={hp(2)}
-                  color={theme.PRIMARY_COLOR}
-                />
+                <Ionicons name="location-outline" size={hp(2)} color={theme.PRIMARY_COLOR} />
               </View>
 
               <View style={{ marginLeft: 10, maxWidth: wp(56) }}>
                 <Text style={styles.locationTitle} numberOfLines={1}>
-                  {location
-                    ? "Iskon Junction, Iskcon Ambli..."
-                    : "Select Location"}
+                  {location ? "Iskon Junction, Iskcon Ambli..." : "Select Location"}
                 </Text>
                 <Text style={styles.locationSubtitle} numberOfLines={1}>
-                  {location
-                    ? `${location.latitude}, ${location.longitude}`
-                    : "Tap to choose"}
+                  {location ? `${location.latitude}, ${location.longitude}` : "Tap to choose"}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -445,11 +642,7 @@ const HomeHeader = React.memo(function HomeHeader({
             hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
             accessibilityRole="button"
           >
-            <Ionicons
-              name="notifications-outline"
-              size={ICON.large}
-              color="#fff"
-            />
+            <Ionicons name="notifications-outline" size={ICON.large} color="#fff" />
           </TouchableOpacity>
         </View>
 
@@ -468,70 +661,29 @@ const HomeHeader = React.memo(function HomeHeader({
           </View>
         </View>
 
+        {/* REPLACED: use CommonSearchBar here (single source of truth fo r search UI) */}
         <View style={styles.searchRow}>
-          {searchText ? (
-            <TouchableOpacity
-              onPress={() => setSearchText("")}
-              hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
-            >
-              <Ionicons name="close-circle" size={ICON.small} />
-            </TouchableOpacity>
-          ) : (
-            <Ionicons
-              name="search"
-              size={ICON.small}
-              color="#999"
-              style={styles.searchIcon}
-            />
-          )}
-
-          <TouchableOpacity
-            style={styles.searchInput}
-            activeOpacity={1}
-            onPress={() => navigation.navigate("searchScreen" as never)}
-            accessibilityRole="button"
-            accessibilityLabel="Open search"
-          >
-            <TextInput
-              editable={false}
-              pointerEvents="none"
-              style={styles.searchInputText}
-              value={searchText}
-              onChangeText={setSearchText}
-              returnKeyType="search"
-            />
-
-            {!searchText && tickerItems.length > 0 ? (
-              <View
-                pointerEvents="none"
-                style={[styles.tickerContainer, { height: ITEM_HEIGHT }]}
-              >
-                <View style={[styles.tickerClip, { height: ITEM_HEIGHT }]}>
-                  <Animated.View style={[tickerAnimStyle]}>
-                    {tickerItems.map((w, i) => (
-                      <View
-                        key={String(w) + i}
-                        style={{
-                          height: ITEM_HEIGHT,
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Text
-                          style={[
-                            styles.placeholderText,
-                            { fontSize: FONT_SIZE },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {"Search for " + w}
-                        </Text>
-                      </View>
-                    ))}
-                  </Animated.View>
-                </View>
-              </View>
-            ) : null}
-          </TouchableOpacity>
+          <CommonUI.NewCommonSearchBar
+          value={searchText}
+  onChange={(v) => setSearchText(v)}
+  onSubmit={(v?: string) => {
+    const term = (v ?? searchText ?? "").trim();
+    // navigate and pass initialQuery if you want the search screen to prefill
+    navigation.navigate("searchScreen" as never, { initialQuery: term } as never);
+  }}
+  onClear={() => setSearchText("")}
+  loading={false}
+  editable={false} // <-- important: makes the bar pressable
+  onPress={() => navigation.navigate("searchScreen" as never, { initialQuery: searchText } as never)}
+            suggestions={[
+               "Tea",
+  "Coffee",
+  "Snacks",
+  "Chai",
+  "Cold coffee",
+  "Iced tea",
+            ]} /* empty disables ticker — you asked no common suggestions */
+          />
         </View>
       </LinearGradient>
 
@@ -553,16 +705,12 @@ const HomeHeader = React.memo(function HomeHeader({
           horizontal
           showsHorizontalScrollIndicator={false}
           keyExtractor={(it: CategoryType) => `cat-${it.categoryId}`}
-          renderItem={({ item }) => (
-            <CategoryItem item={item} onPress={onOpenCategory} />
-          )}
+          renderItem={({ item }) => <CategoryItem item={item} onPress={onOpenCategory} />}
           contentContainerStyle={styles.categoryList}
         />
       )}
 
-      <Text style={styles.sectionTitleCompact}>
-        Nearby Vendors (within 1KM)
-      </Text>
+      <Text style={styles.sectionTitleCompact}>Nearby Vendors (within 1KM)</Text>
     </View>
   );
 });
@@ -1091,14 +1239,14 @@ const styles = StyleSheet.create({
 
   searchRow: {
     marginTop: hp(2),
-    marginHorizontal: wp(4),
-    backgroundColor: "white",
+    marginHorizontal: wp(2),
+    // backgroundColor: "white",
     borderRadius: hp(1.5),
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: wp(3),
     height: hp(6),
-    ...SHADOW,
+    // ...SHADOW,
   },
   searchIcon: { marginRight: wp(2) },
   searchInput: { flex: 1, height: "100%", justifyContent: "center" },

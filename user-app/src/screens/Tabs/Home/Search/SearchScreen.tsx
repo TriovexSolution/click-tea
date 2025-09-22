@@ -1,4 +1,3 @@
-
 import React, {
   useState,
   useEffect,
@@ -119,7 +118,10 @@ const SearchScreen: React.FC = () => {
   const searchCancelRef = useRef<CancelTokenSource | null>(null);
 
   // Ticker: duplicate first item at end for seamless loop
-  const tickerItems = useMemo(() => [...DEFAULT_SUGGESTIONS, DEFAULT_SUGGESTIONS[0]], []);
+  const tickerItems = useMemo(
+    () => [...DEFAULT_SUGGESTIONS, DEFAULT_SUGGESTIONS[0]],
+    []
+  );
   const tickerCount = tickerItems.length;
   const tickerIndexRef = useRef<number>(0);
   const tickerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -154,7 +156,10 @@ const SearchScreen: React.FC = () => {
     async (term: string) => {
       const t = term.trim();
       if (!t) return;
-      const updated = [t, ...recentSearches.filter((r) => r !== t)].slice(0, MAX_RECENT);
+      const updated = [t, ...recentSearches.filter((r) => r !== t)].slice(
+        0,
+        MAX_RECENT
+      );
       setRecentSearches(updated);
       await persistRecent(updated);
     },
@@ -174,7 +179,10 @@ const SearchScreen: React.FC = () => {
   // Main search
   // -------------------------
   const performSearchRaw = useCallback(
-    async (searchTerm: string, opts: { reset?: boolean; page?: number } = { reset: true }) => {
+    async (
+      searchTerm: string,
+      opts: { reset?: boolean; page?: number } = { reset: true }
+    ) => {
       const q = (searchTerm || "").trim();
       if (!q) return;
 
@@ -298,9 +306,16 @@ const SearchScreen: React.FC = () => {
 
   const sections = useMemo((): SectionItem<any>[] => {
     const out: SectionItem<any>[] = [];
-    if (results.shops?.length) out.push({ title: "Shops", data: results.shops, key: "shops" });
-    if (results.categories?.length) out.push({ title: "Categories", data: results.categories, key: "categories" });
-    if (results.menus?.length) out.push({ title: "Menus", data: results.menus, key: "menus" });
+    if (results.shops?.length)
+      out.push({ title: "Shops", data: results.shops, key: "shops" });
+    if (results.categories?.length)
+      out.push({
+        title: "Categories",
+        data: results.categories,
+        key: "categories",
+      });
+    if (results.menus?.length)
+      out.push({ title: "Menus", data: results.menus, key: "menus" });
     return out;
   }, [results]);
 
@@ -308,14 +323,17 @@ const SearchScreen: React.FC = () => {
     if (!item) return null;
     if (item.imageUrl) return `${BASE_URL}/uploads/menus/${item.imageUrl}`;
     if (item.shopImage) return `${BASE_URL}/uploads/shops/${item.shopImage}`;
-    if (item.categoryImage) return `${BASE_URL}/uploads/categories/${item.categoryImage}`;
+    if (item.categoryImage)
+      return `${BASE_URL}/uploads/categories/${item.categoryImage}`;
     return null;
   }, []);
 
   const renderSectionHeader = useCallback(
     ({ section }: { section: SectionListData<any> }) => (
       <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { fontSize: FONT_SIZE }]}>{section.title}</Text>
+        <Text style={[styles.sectionTitle, { fontSize: FONT_SIZE }]}>
+          {section.title}
+        </Text>
       </View>
     ),
     [FONT_SIZE]
@@ -325,7 +343,9 @@ const SearchScreen: React.FC = () => {
   const prefetchMenuAndNavigate = useCallback(
     async (menuId: number, menuName?: string) => {
       try {
-        axiosClient.get(`${BASE_URL}/api/menu/${menuId}`, { timeout: 6000 }).catch(() => {});
+        axiosClient
+          .get(`${BASE_URL}/api/menu/${menuId}`, { timeout: 6000 })
+          .catch(() => {});
       } finally {
         navigation.navigate("menuDetailScreen", { menuId, menuName });
       }
@@ -347,18 +367,29 @@ const SearchScreen: React.FC = () => {
     [navigation]
   );
 
-  const goToCategoryByName = useCallback((name: string) => goToCategory(undefined, name), [goToCategory]);
+  const goToCategoryByName = useCallback(
+    (name: string) => goToCategory(undefined, name),
+    [goToCategory]
+  );
 
   const listKeyExtractor = useCallback(
     (item: any, index: number) =>
-      (item.menuId || item.shopId || item.categoryId || item.id || index).toString(),
+      (
+        item.menuId ||
+        item.shopId ||
+        item.categoryId ||
+        item.id ||
+        index
+      ).toString(),
     []
   );
 
   const renderItem = useCallback(
     ({ item }: SectionListRenderItemInfo<any>) => {
-      const title = item.menuName || item.shopName || item.categoryName || item.name;
-      const subtitle = item.shopName || item.categoryName || item.description || "";
+      const title =
+        item.menuName || item.shopName || item.categoryName || item.name;
+      const subtitle =
+        item.shopName || item.categoryName || item.description || "";
       const uri = imageUriFor(item);
 
       const onPress = () => {
@@ -382,16 +413,36 @@ const SearchScreen: React.FC = () => {
           onPress={onPress}
         >
           {uri ? (
-            <Image source={{ uri }} style={[styles.itemImage, { width: ITEM_IMAGE_SIZE, height: ITEM_IMAGE_SIZE }]} />
+            <Image
+              source={{ uri }}
+              style={[
+                styles.itemImage,
+                { width: ITEM_IMAGE_SIZE, height: ITEM_IMAGE_SIZE },
+              ]}
+            />
           ) : (
-            <View style={[styles.itemPlaceholder, { width: ITEM_IMAGE_SIZE, height: ITEM_IMAGE_SIZE }]} />
+            <View
+              style={[
+                styles.itemPlaceholder,
+                { width: ITEM_IMAGE_SIZE, height: ITEM_IMAGE_SIZE },
+              ]}
+            />
           )}
           <View style={styles.itemText}>
-            <Text numberOfLines={1} style={[styles.itemTitle, { fontSize: FONT_SIZE }]}>
+            <Text
+              numberOfLines={1}
+              style={[styles.itemTitle, { fontSize: FONT_SIZE }]}
+            >
               {title}
             </Text>
             {subtitle ? (
-              <Text numberOfLines={1} style={[styles.itemSubtitle, { fontSize: Math.max(12, Math.round(FONT_SIZE * 0.85)) }]}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.itemSubtitle,
+                  { fontSize: Math.max(12, Math.round(FONT_SIZE * 0.85)) },
+                ]}
+              >
                 {subtitle}
               </Text>
             ) : null}
@@ -399,7 +450,15 @@ const SearchScreen: React.FC = () => {
         </TouchableOpacity>
       );
     },
-    [imageUriFor, prefetchMenuAndNavigate, goToShop, goToCategory, onSubmit, ITEM_IMAGE_SIZE, FONT_SIZE]
+    [
+      imageUriFor,
+      prefetchMenuAndNavigate,
+      goToShop,
+      goToCategory,
+      onSubmit,
+      ITEM_IMAGE_SIZE,
+      FONT_SIZE,
+    ]
   );
 
   useEffect(() => {
@@ -411,7 +470,9 @@ const SearchScreen: React.FC = () => {
         if (query.trim().length > 0 || focused) return;
 
         const next = tickerIndexRef.current + 1;
-        translateY.value = withTiming(-next * INPUT_ITEM_HEIGHT, { duration: TICKER_ANIM_MS });
+        translateY.value = withTiming(-next * INPUT_ITEM_HEIGHT, {
+          duration: TICKER_ANIM_MS,
+        });
         tickerIndexRef.current = next;
 
         // if reached duplicated end (last index), reset to 0 after animation
@@ -457,7 +518,11 @@ const SearchScreen: React.FC = () => {
   // -------------------------
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="transparent"
+        translucent
+      />
 
       {/* Header + Search */}
       <View style={styles.headerOuter}>
@@ -468,7 +533,11 @@ const SearchScreen: React.FC = () => {
             accessibilityRole="button"
             accessibilityLabel="Go back"
           >
-            <Ionicons name="chevron-back-outline" size={Math.round(FONT_SIZE * 1.6)} color="#4a2770" />
+            <Ionicons
+              name="chevron-back-outline"
+              size={Math.round(FONT_SIZE * 1.6)}
+              color="#4a2770"
+            />
           </TouchableOpacity>
 
           <View style={styles.searchCardWrapper}>
@@ -493,12 +562,32 @@ const SearchScreen: React.FC = () => {
 
               {/* Ticker placeholder - intentionally non-interactive so taps pass to TextInput */}
               {!query.trim() && !focused && !livePending ? (
-                <View pointerEvents="none" style={[styles.tickerTouch, { top: Platform.OS === "android" ? 8 : 9, bottom: Platform.OS === "android" ? 10 : 9 }]}>
-                  <View style={[styles.tickerClip, { height: INPUT_ITEM_HEIGHT }]}>
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.tickerTouch,
+                    {
+                      top: Platform.OS === "android" ? 8 : 9,
+                      bottom: Platform.OS === "android" ? 10 : 9,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[styles.tickerClip, { height: INPUT_ITEM_HEIGHT }]}
+                  >
                     <Animated.View style={[tickerAnimatedStyle]}>
                       {tickerItems.map((w, i) => (
-                        <View key={w + i} style={{ height: INPUT_ITEM_HEIGHT, justifyContent: "center" }}>
-                          <Text style={[styles.tickerText, { fontSize: FONT_SIZE }]} numberOfLines={1}>
+                        <View
+                          key={w + i}
+                          style={{
+                            height: INPUT_ITEM_HEIGHT,
+                            justifyContent: "center",
+                          }}
+                        >
+                          <Text
+                            style={[styles.tickerText, { fontSize: FONT_SIZE }]}
+                            numberOfLines={1}
+                          >
                             {w}
                           </Text>
                         </View>
@@ -521,7 +610,11 @@ const SearchScreen: React.FC = () => {
                   }}
                   accessibilityRole="button"
                 >
-                  <Ionicons name="close-circle" size={Math.round(FONT_SIZE * 1.6)} color="#7e6b9a" />
+                  <Ionicons
+                    name="close-circle"
+                    size={Math.round(FONT_SIZE * 1.6)}
+                    color="#7e6b9a"
+                  />
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -532,14 +625,48 @@ const SearchScreen: React.FC = () => {
       </View>
 
       {/* Trending Near You */}
-      <View style={[styles.sectionSpacing, { paddingHorizontal: Math.round(wp(4)) }]}>
-        <Text style={[styles.trendingTitle, { fontSize: Math.round(FONT_SIZE * 1.1) }]}>Trending Near You</Text>
+      <View
+        style={[
+          styles.sectionSpacing,
+          { paddingHorizontal: Math.round(wp(4)) },
+        ]}
+      >
+        <Text
+          style={[
+            styles.trendingTitle,
+            { fontSize: Math.round(FONT_SIZE * 1.1) },
+          ]}
+        >
+          Trending Near You
+        </Text>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.trendingRow}
+        >
           {TRENDING.map((t) => (
-            <TouchableOpacity key={t} style={styles.trendingChip} onPress={() => goToCategoryByName(t)} accessibilityRole="button" accessibilityLabel={`Trending ${t}`}>
-              <Ionicons name="trending-up" size={Math.round(FONT_SIZE * 0.95)} color="#4a2770" style={{ marginRight: 6 }} />
-              <Text style={[styles.trendingText, { fontSize: Math.round(FONT_SIZE * 0.95) }]}>{t}</Text>
+            <TouchableOpacity
+              key={t}
+              style={styles.trendingChip}
+              onPress={() => goToCategoryByName(t)}
+              accessibilityRole="button"
+              accessibilityLabel={`Trending ${t}`}
+            >
+              <Ionicons
+                name="trending-up"
+                size={Math.round(FONT_SIZE * 0.95)}
+                color="#4a2770"
+                style={{ marginRight: 6 }}
+              />
+              <Text
+                style={[
+                  styles.trendingText,
+                  { fontSize: Math.round(FONT_SIZE * 0.95) },
+                ]}
+              >
+                {t}
+              </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -549,27 +676,51 @@ const SearchScreen: React.FC = () => {
       {!query.trim() && !loading && sections.length === 0 ? (
         <View style={styles.recentContainer}>
           <View style={styles.recentHeader}>
-            <Text style={[styles.sectionTitle, { fontSize: FONT_SIZE }]}>Recent Searches</Text>
+            <Text style={[styles.sectionTitle, { fontSize: FONT_SIZE }]}>
+              Recent Searches
+            </Text>
             {recentSearches.length > 0 && (
               <TouchableOpacity onPress={clearRecent}>
-                <Text style={[styles.clearText, { fontSize: Math.round(FONT_SIZE * 0.9) }]}>Clear</Text>
+                <Text
+                  style={[
+                    styles.clearText,
+                    { fontSize: Math.round(FONT_SIZE * 0.9) },
+                  ]}
+                >
+                  Clear
+                </Text>
               </TouchableOpacity>
             )}
           </View>
 
           {recentSearches.length === 0 ? (
-            <Text style={[styles.emptyText, { fontSize: Math.round(FONT_SIZE * 0.95) }]}>No recent searches</Text>
+            <Text
+              style={[
+                styles.emptyText,
+                { fontSize: Math.round(FONT_SIZE * 0.95) },
+              ]}
+            >
+              No recent searches
+            </Text>
           ) : (
             recentSearches.map((r, idx) => (
-              <TouchableOpacity key={idx} style={styles.recentItem} onPress={() => onRecentPress(r)}>
-                <Text style={[styles.recentText, { fontSize: FONT_SIZE }]}>{r}</Text>
+              <TouchableOpacity
+                key={idx}
+                style={styles.recentItem}
+                onPress={() => onRecentPress(r)}
+              >
+                <Text style={[styles.recentText, { fontSize: FONT_SIZE }]}>
+                  {r}
+                </Text>
               </TouchableOpacity>
             ))
           )}
         </View>
       ) : null}
 
-      {error ? <Text style={[styles.errorText, { fontSize: FONT_SIZE }]}>{error}</Text> : null}
+      {error ? (
+        <Text style={[styles.errorText, { fontSize: FONT_SIZE }]}>{error}</Text>
+      ) : null}
 
       {loading || livePending ? (
         <View style={styles.centeredLoader}>
@@ -586,12 +737,16 @@ const SearchScreen: React.FC = () => {
         contentContainerStyle={{
           paddingBottom: Platform.OS === "android" ? 80 : 40,
         }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
         // allow taps to reach TextInput on first touch
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={() =>
           !loading && !livePending && query.trim() ? (
-            <Text style={[styles.noResultText, { fontSize: FONT_SIZE }]}>No results for "{query}"</Text>
+            <Text style={[styles.noResultText, { fontSize: FONT_SIZE }]}>
+              No results for "{query}"
+            </Text>
           ) : null
         }
         initialNumToRender={10}
@@ -601,7 +756,11 @@ const SearchScreen: React.FC = () => {
         onEndReached={() => {
           if (results.menus?.length) loadMoreMenus();
         }}
-        ListFooterComponent={() => (loadingMore ? <ActivityIndicator style={{ marginVertical: 12 }} /> : null)}
+        ListFooterComponent={() =>
+          loadingMore ? (
+            <ActivityIndicator style={{ marginVertical: 12 }} />
+          ) : null
+        }
       />
     </SafeAreaView>
   );
