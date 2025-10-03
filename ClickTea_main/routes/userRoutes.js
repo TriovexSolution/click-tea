@@ -6,4 +6,5 @@ const upload = require("../middleware/uploadMiddleware");
 router.get("/", verifyToken, getUserProfile);
 // ✅ Update profile (with optional image upload)
 router.put("/edit", verifyToken, upload.single("userImage"), updateUserProfile);
+
 module.exports = router;

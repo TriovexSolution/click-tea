@@ -33,13 +33,21 @@ const {
   changePassword,
   refresh,
   signOut,
+  verifyOtp,
 } = require("../controllers/authController");
 const { verifyToken, authorizeRoles } = require("../middleware/authMiddleware");
+const validate = require("../middleware/validate");
 
 // Public routes
 router.post("/signup", signup);
 router.post("/signin", signIn);
 router.post("/request-otp", requestOtp);
+// verify otp - rate limited
+router.post(
+  "/verify-otp",
+  validate,
+  verifyOtp
+);
 router.post("/reset-password", resetPassword);
 
 // Refresh token endpoint (public): accepts { refreshToken }

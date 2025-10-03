@@ -579,158 +579,153 @@ const updateOrderStatus = async (req, res) => {
   }
 };
 // ✅ New: Place Order with Pay Later
+
+const round2 = (v) => Number(Number(v).toFixed(2));
+
 const placePayLaterOrder = async (req, res) => {
+  const userId = req.user?.userId;
+  const { cartItems, delivery_note = "" } = req.body;
+
+  if (!userId) return res.status(401).json({ message: "User not authenticated" });
+  if (!Array.isArray(cartItems) || cartItems.length === 0) return res.status(400).json({ message: "Cart is empty" });
+
+  let conn;
   try {
-    const { cartItems, delivery_note } = req.body;
-    const userId = req.user.id;
+    conn = await db.getConnection();
+    await conn.beginTransaction();
 
-    if (!cartItems || cartItems.length === 0) {
-      return res.status(400).json({ message: "Cart is empty" });
-    }
-
-    // ✅ 1. Check subscription
-    const [subs] = await db.query(
+    // 1) Check active subscription
+    const [subs] = await conn.query(
       `SELECT * FROM subscriptions WHERE user_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1`,
       [userId]
     );
     if (!subs.length) {
+      await conn.rollback();
       return res.status(403).json({ message: "No active subscription" });
     }
 
-    // ✅ 2. Group items by shop
+    // 2) Validate & group items by shopId
+    const shopMap = {};
+    const cartIds = [];   // collect cartId if provided by client
+    const shopIdSet = new Set();
+    for (const item of cartItems) {
+      if (!item || (item.shopId === undefined || item.shopId === null)) {
+        await conn.rollback();
+        return res.status(400).json({ message: "Missing shopId in cart item", item });
+      }
+      const sid = Number(item.shopId);
+      if (!Number.isFinite(sid) || sid <= 0) {
+        await conn.rollback();
+        return res.status(400).json({ message: "Invalid shopId in cart item", item });
+      }
+      shopMap[sid] = shopMap[sid] || [];
+      shopMap[sid].push(item);
 
-const shopMap = {};
-for (let item of cartItems) {
-  const { shopId } = item;
+      shopIdSet.add(sid);
+      if (item.cartId) cartIds.push(Number(item.cartId));
+    }
 
-  if (!shopId || isNaN(Number(shopId))) {
-    console.error("❌ Invalid shopId in cartItem:", item);
-    return res.status(400).json({
-      message: "Invalid cart item — missing or invalid shopId",
-      item,
-    });
-  }
+    // 3) For each shop compute canonical totals using server logic
+    const shopSummaries = []; // { shopId, prepared, subtotal, gstAmount, deliveryFee, discount, totalAmount }
+    let grandTotal = 0;
+    for (const shopIdStr of Object.keys(shopMap)) {
+      const shopId = Number(shopIdStr);
+      const sanitized = sanitizeCartItems(shopMap[shopId]);
+      const totals = await computeOrderTotals(conn, sanitized, shopId);
+      if (!totals || !Array.isArray(totals.prepared)) {
+        throw new Error("computeOrderTotals returned invalid result");
+      }
+      shopSummaries.push({ shopId, ...totals });
+      grandTotal += Number(totals.totalAmount);
+    }
 
-  const sid = Number(shopId);
-  if (!shopMap[sid]) shopMap[sid] = [];
-  shopMap[sid].push(item);
-}
-
-    // ✅ 3. Create Pay Later entry
-    const [payLaterRes] = await db.query(
-      `INSERT INTO pay_later (user_id, due_date, is_paid, total_amount) VALUES (?, DATE_ADD(NOW(), INTERVAL 7 DAY), 0, 0.00)`,
-      [userId]
+    // 4) Insert pay_later record (with total_amount)
+    const [payLaterRes] = await conn.query(
+      `INSERT INTO pay_later (user_id, due_date, is_paid, total_amount, created_at) VALUES (?, DATE_ADD(NOW(), INTERVAL 7 DAY), 0, ?, NOW())`,
+      [userId, round2(grandTotal)]
     );
     const payLaterId = payLaterRes.insertId;
 
-    let grandTotal = 0;
+    // 5) Insert orders and order_items per shop using server-canonical totals
     const createdOrderIds = [];
+    for (const sp of shopSummaries) {
+      const { shopId, prepared, subtotal, gstAmount, deliveryFee, discount, totalAmount } = sp;
 
-    // ✅ 4. Create orders by shop
-    for (const shopId in shopMap) {
-      const items = shopMap[shopId];
-      const total = items.reduce((sum, i) => sum + parseFloat(i.subtotal), 0);
-      grandTotal += total;
-
-      const [orderRes] = await db.query(
-        `INSERT INTO orders (userId, shopId, totalAmount, payment_type, is_paid, delivery_note, pay_later_id) 
-         VALUES (?, ?, ?, 'PayLater', 0, ?, ?)`,
-        [userId, shopId, total, delivery_note || "", payLaterId]
+      const [orderRes] = await conn.query(
+        `INSERT INTO orders
+         (userId, shopId, subtotal, gstAmount, deliveryFee, discount, totalAmount, payment_type, is_paid, delivery_note, status, pay_later_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'paylater', 0, ?, 'preparing', ?, NOW())`,
+        [
+          userId,
+          shopId,
+          round2(subtotal).toFixed(2),
+          round2(gstAmount).toFixed(2),
+          round2(deliveryFee).toFixed(2),
+          round2(discount).toFixed(2),
+          round2(totalAmount).toFixed(2),
+          delivery_note || "",
+          payLaterId
+        ]
       );
       const orderId = orderRes.insertId;
       createdOrderIds.push(orderId);
 
-      for (const item of items) {
-        await db.query(
-          `INSERT INTO order_items (orderId, menuId, quantity, addons, price, subtotal) 
-           VALUES (?, ?, ?, ?, ?, ?)`,
+      // insert order_items using prepared snapshot/unitPrice etc
+      for (const it of prepared) {
+        await conn.query(
+          `INSERT INTO order_items
+           (orderId, menuId, menuName, variantId, quantity, addons, unitPrice, price, subtotal, snapshot, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             orderId,
-            item.menuId,
-            item.quantity,
-            JSON.stringify(item.addons || []),
-            item.price,
-            item.subtotal,
+            it.menuId,
+            it.snapshotName || null,
+            it.variantId ?? null,
+            it.quantity,
+            JSON.stringify(it.addons || []),
+            round2(it.unitPrice).toFixed(2),
+            round2(it.unitPrice).toFixed(2),
+            round2(it.lineSubtotal).toFixed(2),
+            JSON.stringify(it.snapshot || { menuName: it.snapshotName, unitPrice: it.unitPrice })
           ]
         );
       }
     }
 
-    // ✅ 5. Update Pay Later total
-    await db.query(
-      `UPDATE pay_later SET total_amount = ? WHERE id = ?`,
-      [grandTotal.toFixed(2), payLaterId]
-    );
+    // --- NEW: Clear cart items for this user (atomic inside TX) ---
+    let deletedCount = 0;
+    const shopIds = Array.from(shopIdSet);
+    if (cartIds.length) {
+      const [delRes1] = await conn.query("DELETE FROM cart_items WHERE cartId IN (?)", [cartIds]);
+      // mysql2 returns affectedRows under delRes1.affectedRows (depending on client)
+      deletedCount += delRes1 && (delRes1.affectedRows || delRes1.affectedRows === 0) ? delRes1.affectedRows : 0;
+    }
+    if (shopIds.length) {
+      const [delRes2] = await conn.query(
+        "DELETE FROM cart_items WHERE userId = ? AND shopId IN (?) AND status = 'active'",
+        [userId, shopIds]
+      );
+      deletedCount += delRes2 && (delRes2.affectedRows || delRes2.affectedRows === 0) ? delRes2.affectedRows : 0;
+    }
+    // --- END CLEAR CARTS ---
 
-    res.status(201).json({
+    await conn.commit();
+    return res.status(201).json({
       message: "Pay Later order placed",
       payLaterId,
-      totalAmount: grandTotal,
+      totalAmount: round2(grandTotal),
       orderIds: createdOrderIds,
+      deletedCartRows: deletedCount
     });
   } catch (err) {
     console.error("❌ placePayLaterOrder error:", err);
-    res.status(500).json({ message: "Server error" });
+    try { if (conn) await conn.rollback(); } catch (e) {}
+    return res.status(500).json({ message: err.message || "Server error" });
+  } finally {
+    if (conn) try { await conn.release(); } catch (e) {}
   }
 };
-// const getPopularItems = async (req, res) => {
-//   const { lat, lng } = req.query;
 
-//   if (!lat || !lng) {
-//     return res.status(400).json({ message: "Latitude and longitude are required" });
-//   }
-
-//   // Cache key based on lat/lng rounded to 3 decimals (about 100m precision)
-//   const cacheKey = `popular_items_${parseFloat(lat).toFixed(3)}_${parseFloat(lng).toFixed(3)}`;
-
-//   try {
-//     // Try fetching cached data first
-//      const cachedData = await redisClient.get(cacheKey);
-//     if (cachedData) {
-//       return res.status(200).json(JSON.parse(cachedData));
-//     }
-
-//     // SQL query for popular items
-//     const query = `
-//       SELECT
-//         oi.menuId,
-//         m.menuName,
-//         m.imageUrl,
-//         SUM(oi.quantity) AS totalQuantity
-//       FROM
-//         order_items oi
-//       JOIN orders o ON oi.orderId = o.orderId
-//       JOIN menus m ON oi.menuId = m.menuId
-//       WHERE
-//         o.status = 'delivered'
-//         AND o.ordered_at >= NOW() - INTERVAL 1 DAY
-//         AND o.shopId IN (
-//           SELECT id FROM shops
-//           WHERE
-//             (6371 * acos(
-//               cos(radians(?)) * cos(radians(latitude)) *
-//               cos(radians(longitude) - radians(?)) +
-//               sin(radians(?)) * sin(radians(latitude))
-//             )) <= 3
-//         )
-//       GROUP BY oi.menuId
-//       ORDER BY totalQuantity DESC
-//       LIMIT 7;
-//     `;
-
-//     const params = [lat, lng, lat];
-
-//     const [popularItems] = await db.query(query, params);
-
-//     // Cache results for 10 minutes (600 seconds)
-//     await setexAsync(cacheKey, 600, JSON.stringify(popularItems));
-
-//     res.status(200).json(popularItems);
-//   } catch (err) {
-//     console.error("Error fetching popular items:", err);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// };
 const getPopularItems = async (req, res) => {
   try {
     const { lat, lng, debug } = req.query;
@@ -780,9 +775,105 @@ const getPopularItems = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+const getMyPayLater = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    // fetch active pay_later rows for user (pending)
+    const [rows] = await db.query(
+      `SELECT p.id AS payLaterId, p.total_amount, p.is_paid, p.due_date, p.created_at
+       FROM pay_later p
+       WHERE p.user_id = ? AND p.is_paid = 0
+       ORDER BY p.created_at DESC`,
+      [userId]
+    );
 
+    // for each pay_later get orders grouped by shop
+    const out = [];
+    for (const p of rows) {
+      const [shops] = await db.query(
+        `SELECT o.shopId, s.shopname, s.shopImage, COUNT(*) AS pendingOrders, SUM(o.totalAmount) AS amount
+         FROM orders o
+         JOIN shops s ON s.id = o.shopId
+         WHERE o.pay_later_id = ? AND o.is_paid = 0
+         GROUP BY o.shopId`,
+        [p.payLaterId]
+      );
+      out.push({ ...p, shops });
+    }
 
+    return res.status(200).json(out);
+  } catch (err) {
+    console.error("getMyPayLater error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+const getSinglePayLater = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { payLaterId, shopId } = req.params;
 
+    if (!payLaterId || !shopId) {
+      return res.status(400).json({ message: "payLaterId and shopId are required" });
+    }
+
+    // Fetch pay_later row (ensure ownership and not already fully paid)
+    const [[payLaterRow]] = await db.query(
+      `SELECT id AS payLaterId, total_amount, is_paid, due_date, created_at
+       FROM pay_later
+       WHERE id = ? AND user_id = ? AND is_paid = 0`,
+      [payLaterId, userId]
+    );
+    if (!payLaterRow) return res.status(404).json({ message: "Pay Later record not found" });
+
+    // Fetch orders for that shop
+    // NOTE: use o.orderId (your schema uses orderId as PK)
+    const [orders] = await db.query(
+      `SELECT o.orderId AS orderId, o.totalAmount, o.created_at, o.status,
+              o.delivery_note, o.is_paid
+       FROM orders o
+       WHERE o.pay_later_id = ? AND o.shopId = ? AND o.userId = ? AND o.is_paid = 0
+       ORDER BY o.created_at DESC`,
+      [payLaterId, shopId, userId]
+    );
+
+    // Attach items for each order (order_items uses orderId)
+    for (const ord of orders) {
+      const [items] = await db.query(
+        `SELECT menuId, menuName, quantity, unitPrice, subtotal
+         FROM order_items WHERE orderId = ?`,
+        [ord.orderId]
+      );
+
+      // Normalize item fields — if addons stored as string, parse it here (optional)
+      ord.items = items.map((it) => {
+        // ensure numeric types
+        return {
+          menuId: it.menuId,
+          menuName: it.menuName,
+          quantity: Number(it.quantity || 0),
+          unitPrice: Number(it.unitPrice || it.price || 0),
+          subtotal: Number(it.subtotal || 0),
+          addons: (() => {
+            try {
+              if (typeof it.addons === "string" && it.addons.trim().startsWith("[")) return JSON.parse(it.addons);
+            } catch (e) {}
+            return it.addons || [];
+          })()
+        };
+      });
+    }
+
+    return res.status(200).json({
+      ...payLaterRow,
+      shopId: Number(shopId),
+      orders
+    });
+  } catch (err) {
+    // helpful logging for debugging (remove detailed logging in production)
+    console.error("getSinglePayLater error:", err && err.sql ? `${err.code} - ${err.sqlMessage} - SQL: ${err.sql}` : err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
 module.exports = {
   placeOrder,
   createOrdersFromCart,
@@ -793,5 +884,7 @@ module.exports = {
     getOrderById,
   cancelOrder,
   updateOrderStatus,
-  getPopularItems
+  getPopularItems,
+  getMyPayLater,
+  getSinglePayLater
 };

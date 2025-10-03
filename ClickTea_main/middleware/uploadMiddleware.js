@@ -10,8 +10,11 @@ const fs = require("fs");
 const getFolderFromRoute = (req) => {
   if (req.originalUrl.includes("/category")) return "uploads/categories/";
   if (req.originalUrl.includes("/menu")) return "uploads/menus/";
-  if (req.originalUrl.includes("/user")) return "uploads/users/";  // ✅ for user profile images
-  return "uploads/shops/";
+  if (req.originalUrl.includes("/profile")) return "uploads/users/";
+    // return "uploads/shops/";
+      // shop & fallback
+  if (req.originalUrl.includes("/shop") || req.originalUrl.includes("/shops")) return "uploads/shops/";
+  return "uploads/others/";
 };
 
 const storage = multer.diskStorage({

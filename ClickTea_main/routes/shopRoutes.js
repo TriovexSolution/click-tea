@@ -9,7 +9,8 @@ const {
   getAllShops,
   deleteShop,
   getNearbyShops,
-  getShopById
+  getShopById,
+  getShopOverview
 } = require("../controllers/shopController");
 
 const { verifyToken, authorizeRoles } = require("../middleware/authMiddleware");
@@ -59,5 +60,5 @@ router.get("/nearby", verifyToken, getNearbyShops); // if you need auth
 
 // ✅ user:for user get shop data using id as 
 router.get('/detail/:id',getShopById)
-
+router.get("/overview", verifyToken, authorizeRoles("shop_owner", "admin"), getShopOverview);
 module.exports = router;

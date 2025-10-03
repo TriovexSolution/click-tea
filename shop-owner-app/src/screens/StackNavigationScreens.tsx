@@ -3,7 +3,6 @@ import React from 'react'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { NavigationContainer } from '@react-navigation/native'
 import { Stack } from 'expo-router'
-import OnBoardScreen from './Auth/OnBoardScreen'
 import SignInScreen from './Auth/SignIn/SignInScreen'
 import SignUpScreen from './Auth/SignUp/SignUpScreen'
 import EnterShopDetailScreen from './Shops/EnterShopDetailScreen'
@@ -12,6 +11,7 @@ import AddCategoryScreen from './Tabs/Home/category/AddcategoryScreen'
 import AddMenuScreen from './Tabs/Home/menu/AddMenuScreen'
 import MenuItemScreen from './Tabs/Home/menu/MenuItemsScreen'
 import ManageBestSellerScreen from './Tabs/Home/BestSeller/ManageBestSellerScreen'
+import OnBoardScreen from './Auth/OnBoardScreen'
 
 
 const StackNavigationScreens = () => {
